@@ -34,6 +34,7 @@ matplotlib.rc("ytick", labelsize=12)
 NUM_ZONES = 10
 NUM_CLASSES = 3
 ZONE_COLUMNS = [f"Zone{i}_label" for i in range(1, NUM_ZONES + 1)]
+FALLBACK_EXTS = [".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"]
 
 
 parser = argparse.ArgumentParser()
@@ -137,6 +138,41 @@ def _validate_zone_values(zone_df: pd.DataFrame, csv_file: str) -> None:
         )
 
 
+def resolve_image_path(base_folder: str, rel_path: str) -> str:
+    candidate = os.path.join(base_folder, rel_path)
+    if os.path.exists(candidate):
+        return candidate
+
+    root, ext = os.path.splitext(candidate)
+    tried = [candidate]
+
+    for fallback_ext in FALLBACK_EXTS:
+        alt = root + fallback_ext
+        tried.append(alt)
+        if os.path.exists(alt):
+            return alt
+
+        alt_upper = root + fallback_ext.upper()
+        tried.append(alt_upper)
+        if os.path.exists(alt_upper):
+            return alt_upper
+
+    # Last attempt: match by basename stem in same directory.
+    parent_dir = os.path.dirname(candidate)
+    stem = os.path.splitext(os.path.basename(candidate))[0].lower()
+    if os.path.isdir(parent_dir):
+        for fname in os.listdir(parent_dir):
+            f_stem, f_ext = os.path.splitext(fname)
+            if f_stem.lower() == stem and f_ext.lower() in FALLBACK_EXTS:
+                return os.path.join(parent_dir, fname)
+
+    raise FileNotFoundError(
+        "Image not found. Tried path and extension fallbacks.\n"
+        f"Requested: {candidate}\n"
+        f"Tried: {tried[:8]}{' ...' if len(tried) > 8 else ''}"
+    )
+
+
 def load_data(csv_file: str, csvpath: str, folder: str):
     df = pd.read_csv(os.path.join(csvpath, csv_file))
 
@@ -150,7 +186,7 @@ def load_data(csv_file: str, csvpath: str, folder: str):
     zone_df = df[ZONE_COLUMNS].apply(pd.to_numeric, errors="coerce")
     _validate_zone_values(zone_df, csv_file)
 
-    paths = df["Image File"].astype(str).apply(lambda x: os.path.join(folder, x)).tolist()
+    paths = df["Image File"].astype(str).apply(lambda x: resolve_image_path(folder, x)).tolist()
     labels = torch.tensor(zone_df.astype(int).values, dtype=torch.long)
 
     return paths, labels
