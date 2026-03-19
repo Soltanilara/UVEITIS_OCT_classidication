@@ -51,6 +51,7 @@ parser.add_argument("--brightness", action="store_true")
 parser.add_argument("--contrast", action="store_true")
 parser.add_argument("--gnoise", action="store_true")
 parser.add_argument("--batch_size", type=int, default=64)
+parser.add_argument("--image_size", type=int, default=512, help="Resize for non-ViT models (square size).")
 parser.add_argument("--lr", type=float, default=0.001)
 parser.add_argument("--decay", type=float, default=0.01)
 parser.add_argument("--num_epochs", type=int, default=100)
@@ -174,6 +175,8 @@ class CustomImageDataset(Dataset):
 
 
 def build_transforms():
+    default_resize = (args.image_size, args.image_size)
+
     if args.model in {"B_16_imagenet1k", "L_16_imagenet1k"}:
         val_transform = transforms.Compose(
             [
@@ -193,6 +196,7 @@ def build_transforms():
     elif args.protocol == "scratch":
         val_transform = transforms.Compose(
             [
+                transforms.Resize(default_resize),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5]),
             ]
@@ -200,6 +204,7 @@ def build_transforms():
     else:
         val_transform = transforms.Compose(
             [
+                transforms.Resize(default_resize),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
             ]
@@ -210,6 +215,8 @@ def build_transforms():
         transform_list.append(transforms.Resize((384, 384)))
     elif args.model in {"vitb14_dino"}:
         transform_list.append(transforms.Resize((518, 518)))
+    else:
+        transform_list.append(transforms.Resize(default_resize))
 
     transform_list.append(transforms.ToTensor())
 
