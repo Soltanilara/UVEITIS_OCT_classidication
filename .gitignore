@@ -1,0 +1,30 @@
+# Python cache
+__pycache__/
+*.pyc
+
+# Local env / editor
+.venv/
+venv/
+.env
+.vscode/
+
+# Training logs
+logs/
+*.log
+
+# Large model artifacts (ignore)
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.onnx
+
+# Training plots and visual artifacts under output folders
+output*/**/history.png
+output*/**/history.jpg
+output*/**/history.jpeg
+
+# Keep metrics/results files trackable
+!**/*.csv
+!**/*.json
+
