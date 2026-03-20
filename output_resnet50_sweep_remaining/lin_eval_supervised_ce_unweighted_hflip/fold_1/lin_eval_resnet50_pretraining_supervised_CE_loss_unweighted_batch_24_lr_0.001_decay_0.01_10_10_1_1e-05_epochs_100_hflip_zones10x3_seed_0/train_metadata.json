@@ -1,0 +1,6 @@
+{
+  "best_epoch": 51,
+  "best_val_mean_macro_f1": 0.4015918350877592,
+  "num_zones": 10,
+  "num_classes": 3
+}
