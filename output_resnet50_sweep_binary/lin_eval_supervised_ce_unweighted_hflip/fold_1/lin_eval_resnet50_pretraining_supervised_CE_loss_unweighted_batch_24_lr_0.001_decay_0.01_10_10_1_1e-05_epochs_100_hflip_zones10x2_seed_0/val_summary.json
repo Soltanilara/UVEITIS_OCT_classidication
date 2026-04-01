@@ -1,0 +1,12 @@
+{
+  "split": "val",
+  "loss": 0.8284724107602748,
+  "mean_accuracy": 0.5073170731707316,
+  "mean_binary_f1": 0.5769288347724355,
+  "mean_precision": 0.4280460336696879,
+  "mean_recall": 0.9096638298876151,
+  "mean_specificity": 0.24691538167248406,
+  "micro_f1_flat": 0.5073170731707317,
+  "macro_f1_flat": 0.4888159194153664,
+  "macro_f1_across_zones": 0.5769288347724355
+}
