@@ -58,6 +58,18 @@ def main() -> None:
     parser.add_argument("--seed", type=int, default=42, help="Random seed.")
     parser.add_argument("--out_prefix", type=str, default="fold", help="Output directory prefix.")
     parser.add_argument(
+        "--image_column",
+        type=str,
+        default="auto",
+        help="Image-path column to use. Set to 'auto', 'UWFFP', or 'Image_File(FA)'.",
+    )
+    parser.add_argument(
+        "--group_column",
+        type=str,
+        default="auto",
+        help="Grouping column for patient-level separation. Set to 'auto' to prefer Patient_ID.",
+    )
+    parser.add_argument(
         "--drop_missing_zone_rows",
         type=str,
         default="none",
@@ -75,7 +87,11 @@ def main() -> None:
     if not zone_cols:
         raise ValueError("No zone label columns found (expected Zone*_label).")
 
-    if "UWFFP" in df.columns:
+    if args.image_column != "auto":
+        if args.image_column not in df.columns:
+            raise ValueError(f"Requested image column '{args.image_column}' not found in XLSX.")
+        path_col = args.image_column
+    elif "UWFFP" in df.columns:
         path_col = "UWFFP"
     elif "Image_File(FA)" in df.columns:
         path_col = "Image_File(FA)"
@@ -84,6 +100,14 @@ def main() -> None:
 
     df["Image File"] = df[path_col].apply(normalize_relative_path)
     df["Prefix"] = df["Image File"].apply(lambda x: str(x).split("/")[0])
+    if args.group_column != "auto":
+        if args.group_column not in df.columns:
+            raise ValueError(f"Requested group column '{args.group_column}' not found in XLSX.")
+        df["SplitGroup"] = df[args.group_column].astype(str)
+    elif "Patient_ID" in df.columns:
+        df["SplitGroup"] = df["Patient_ID"].astype(str)
+    else:
+        df["SplitGroup"] = df["Prefix"].astype(str)
 
     # Optionally remove rows with missing zone labels before split creation.
     zone_numeric = df[zone_cols].apply(pd.to_numeric, errors="coerce")
@@ -101,23 +125,23 @@ def main() -> None:
     label_map = {0: "negative", 1: "mild", 2: "moderate", 3: "severe"}
     df["Label"] = max_zone.map(label_map).fillna("negative")
 
-    unique_prefixes = np.sort(df["Prefix"].unique())
-    num_patients = len(unique_prefixes)
-    if num_patients < args.n_val + args.n_folds:
+    unique_groups = np.sort(df["SplitGroup"].unique())
+    num_groups = len(unique_groups)
+    if num_groups < args.n_val + args.n_folds:
         raise ValueError("Not enough patients for requested n_folds and n_val.")
 
-    shuffled_prefixes = np.random.permutation(unique_prefixes)
-    folds = np.array_split(shuffled_prefixes, args.n_folds)
+    shuffled_groups = np.random.permutation(unique_groups)
+    folds = np.array_split(shuffled_groups, args.n_folds)
 
     for i in range(args.n_folds):
-        test_prefixes = np.sort(folds[i])
-        remaining_prefixes = np.concatenate([folds[j] for j in range(args.n_folds) if j != i])
-        val_prefixes = np.sort(np.random.choice(remaining_prefixes, size=args.n_val, replace=False))
-        train_prefixes = np.sort(list(set(remaining_prefixes) - set(val_prefixes)))
+        test_groups = np.sort(folds[i])
+        remaining_groups = np.concatenate([folds[j] for j in range(args.n_folds) if j != i])
+        val_groups = np.sort(np.random.choice(remaining_groups, size=args.n_val, replace=False))
+        train_groups = np.sort(list(set(remaining_groups) - set(val_groups)))
 
-        test_df = df[df["Prefix"].isin(test_prefixes)].copy()
-        val_df = df[df["Prefix"].isin(val_prefixes)].copy()
-        train_df = df[df["Prefix"].isin(train_prefixes)].copy()
+        test_df = df[df["SplitGroup"].isin(test_groups)].copy()
+        val_df = df[df["SplitGroup"].isin(val_groups)].copy()
+        train_df = df[df["SplitGroup"].isin(train_groups)].copy()
         train_final_df = pd.concat([train_df, val_df], ignore_index=True)
 
         for split_df in (test_df, val_df, train_df, train_final_df):
@@ -125,7 +149,7 @@ def main() -> None:
 
         # Keep all original columns + Image File/Label/AllZoneLabelsMissing; drop internal Prefix.
         for split_df in (test_df, val_df, train_df, train_final_df):
-            split_df.drop(columns=["Prefix"], inplace=True)
+            split_df.drop(columns=["Prefix", "SplitGroup"], inplace=True)
 
         fold_dir = f"{args.out_prefix}_{i}"
         os.makedirs(fold_dir, exist_ok=True)
@@ -145,7 +169,10 @@ def main() -> None:
         os.rename(os.path.join(fold_dir, "classWeights.npy"), os.path.join(fold_dir, "classWeights_final.npy"))
         os.rename(os.path.join(fold_dir, "gradedWeights.npy"), os.path.join(fold_dir, "gradedWeights_final.npy"))
 
-    print(f"{args.n_folds}-fold patient-level splits created successfully from XLSX: {args.xlsx_path}")
+    print(
+        f"{args.n_folds}-fold patient-level splits created successfully from XLSX: {args.xlsx_path} "
+        f"(image_column={path_col}, group_column={'auto->Patient_ID' if args.group_column == 'auto' and 'Patient_ID' in df.columns else args.group_column})"
+    )
 
 
 if __name__ == "__main__":

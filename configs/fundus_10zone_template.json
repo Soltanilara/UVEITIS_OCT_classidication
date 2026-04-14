@@ -1,0 +1,16 @@
+{
+  "name": "fundus_10zone_template_v1",
+  "description": "Editable default 10-zone crop template on the canonical fundus canvas. Zones are ordered Zone1 through Zone10 and expressed as normalized x0/y0/x1/y1 boxes.",
+  "zones": [
+    { "zone": 1, "x0": 0.05, "y0": 0.14, "x1": 0.23, "y1": 0.40 },
+    { "zone": 2, "x0": 0.22, "y0": 0.14, "x1": 0.40, "y1": 0.40 },
+    { "zone": 3, "x0": 0.39, "y0": 0.14, "x1": 0.57, "y1": 0.40 },
+    { "zone": 4, "x0": 0.56, "y0": 0.14, "x1": 0.74, "y1": 0.40 },
+    { "zone": 5, "x0": 0.73, "y0": 0.14, "x1": 0.91, "y1": 0.40 },
+    { "zone": 6, "x0": 0.05, "y0": 0.46, "x1": 0.23, "y1": 0.72 },
+    { "zone": 7, "x0": 0.22, "y0": 0.46, "x1": 0.40, "y1": 0.72 },
+    { "zone": 8, "x0": 0.39, "y0": 0.46, "x1": 0.57, "y1": 0.72 },
+    { "zone": 9, "x0": 0.56, "y0": 0.46, "x1": 0.74, "y1": 0.72 },
+    { "zone": 10, "x0": 0.73, "y0": 0.46, "x1": 0.91, "y1": 0.72 }
+  ]
+}
