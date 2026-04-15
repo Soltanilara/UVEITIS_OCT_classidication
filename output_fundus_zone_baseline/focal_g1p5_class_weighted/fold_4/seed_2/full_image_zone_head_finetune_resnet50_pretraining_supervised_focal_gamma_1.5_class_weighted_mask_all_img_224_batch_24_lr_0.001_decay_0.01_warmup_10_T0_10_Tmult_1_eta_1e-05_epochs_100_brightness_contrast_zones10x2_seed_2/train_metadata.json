@@ -1,0 +1,30 @@
+{
+  "best_epoch": 2,
+  "best_val_mean_binary_f1": 0.8012874535802389,
+  "num_zones": 10,
+  "num_classes": 2,
+  "input_mode": "full_image_zone_head",
+  "drop_missing_zone_rows": "all",
+  "zone_thresholds": [
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5
+  ],
+  "label_smoothing": 0.0,
+  "loss": "focal",
+  "gamma": 1.5,
+  "fundus_pretrained_ckpt": "",
+  "zone_template_json": "",
+  "swa_enabled": false,
+  "hybrid_freeze_crop_epochs": 5,
+  "train_rows": 292,
+  "train_rows_with_any_missing_zone": 0,
+  "train_rows_with_all_zones_missing_after_drop": 0
+}

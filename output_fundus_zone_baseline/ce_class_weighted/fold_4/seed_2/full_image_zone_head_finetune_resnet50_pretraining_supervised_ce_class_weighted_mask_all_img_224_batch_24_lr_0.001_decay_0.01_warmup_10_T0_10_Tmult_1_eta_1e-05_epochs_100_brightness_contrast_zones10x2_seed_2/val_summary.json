@@ -1,0 +1,75 @@
+{
+  "split": "val",
+  "loss": 0.5593860418565811,
+  "mean_accuracy": 0.7516129032258065,
+  "mean_binary_f1": 0.8305570867222467,
+  "mean_precision": 0.7631740153215772,
+  "mean_recall": 0.9174674404908261,
+  "mean_specificity": 0.42752705627705634,
+  "micro_f1_flat": 0.7516129032258064,
+  "macro_f1_flat": 0.6782845436411666,
+  "macro_f1_across_zones": 0.8305570867222467,
+  "observed_zone_labels": 620,
+  "rows_with_observed_zone_labels": 62,
+  "zone_thresholds": [
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5
+  ],
+  "any_positive_visit_f1": 0.918918918918919,
+  "any_positive_visit_accuracy": 0.8548387096774194,
+  "any_positive_visit_precision": 0.9107142857142857,
+  "any_positive_visit_sensitivity": 0.9272727272727272,
+  "any_positive_visit_specificity": 0.2857142857142857,
+  "any_positive_visit_roc_auc": 0.8168831168831169,
+  "any_positive_visit_pr_auc": 0.9754320166166492,
+  "any_positive_visit": {
+    "n_rows": 62,
+    "f1": 0.918918918918919,
+    "accuracy": 0.8548387096774194,
+    "precision": 0.9107142857142857,
+    "sensitivity": 0.9272727272727272,
+    "specificity": 0.2857142857142857,
+    "roc_auc": 0.8168831168831169,
+    "pr_auc": 0.9754320166166492
+  },
+  "any_positive_visit_bootstrap_ci": {
+    "f1": {
+      "mean": 0.9191488027572632,
+      "ci_low": 0.8598130941390991,
+      "ci_high": 0.9661158323287964
+    },
+    "accuracy": {
+      "mean": 0.8564354181289673,
+      "ci_low": 0.7580645084381104,
+      "ci_high": 0.9354838728904724
+    },
+    "sensitivity": {
+      "mean": 0.9275447726249695,
+      "ci_low": 0.8421052694320679,
+      "ci_high": 0.982758641242981
+    },
+    "specificity": {
+      "mean": 0.2925924062728882,
+      "ci_low": 0.0,
+      "ci_high": 0.6666666865348816
+    },
+    "roc_auc": {
+      "mean": 0.8180699944496155,
+      "ci_low": 0.6935037970542908,
+      "ci_high": 0.9259658455848694
+    },
+    "pr_auc": {
+      "mean": 0.9755540490150452,
+      "ci_low": 0.9443890452384949,
+      "ci_high": 0.9941411018371582
+    }
+  }
+}

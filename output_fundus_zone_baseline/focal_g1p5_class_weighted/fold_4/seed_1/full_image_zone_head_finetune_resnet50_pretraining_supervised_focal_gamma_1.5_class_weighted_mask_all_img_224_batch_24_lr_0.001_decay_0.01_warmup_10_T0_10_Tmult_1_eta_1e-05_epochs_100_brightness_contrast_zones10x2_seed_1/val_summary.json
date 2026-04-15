@@ -1,0 +1,75 @@
+{
+  "split": "val",
+  "loss": 0.20193905167041287,
+  "mean_accuracy": 0.7516129032258064,
+  "mean_binary_f1": 0.8300623811696252,
+  "mean_precision": 0.7709030050779975,
+  "mean_recall": 0.906945188915943,
+  "mean_specificity": 0.4490800865800866,
+  "micro_f1_flat": 0.7516129032258064,
+  "macro_f1_flat": 0.6844721153719052,
+  "macro_f1_across_zones": 0.8300623811696252,
+  "observed_zone_labels": 620,
+  "rows_with_observed_zone_labels": 62,
+  "zone_thresholds": [
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5
+  ],
+  "any_positive_visit_f1": 0.9026548672566371,
+  "any_positive_visit_accuracy": 0.8225806451612904,
+  "any_positive_visit_precision": 0.8793103448275862,
+  "any_positive_visit_sensitivity": 0.9272727272727272,
+  "any_positive_visit_specificity": 0.0,
+  "any_positive_visit_roc_auc": 0.7415584415584415,
+  "any_positive_visit_pr_auc": 0.9622266384918681,
+  "any_positive_visit": {
+    "n_rows": 62,
+    "f1": 0.9026548672566371,
+    "accuracy": 0.8225806451612904,
+    "precision": 0.8793103448275862,
+    "sensitivity": 0.9272727272727272,
+    "specificity": 0.0,
+    "roc_auc": 0.7415584415584415,
+    "pr_auc": 0.9622266384918681
+  },
+  "any_positive_visit_bootstrap_ci": {
+    "f1": {
+      "mean": 0.9018866419792175,
+      "ci_low": 0.84112149477005,
+      "ci_high": 0.9579831957817078
+    },
+    "accuracy": {
+      "mean": 0.8226451277732849,
+      "ci_low": 0.725806474685669,
+      "ci_high": 0.9193548560142517
+    },
+    "sensitivity": {
+      "mean": 0.926093339920044,
+      "ci_low": 0.8518518805503845,
+      "ci_high": 0.9824561476707458
+    },
+    "specificity": {
+      "mean": 0.0,
+      "ci_low": 0.0,
+      "ci_high": 0.0
+    },
+    "roc_auc": {
+      "mean": 0.7439063787460327,
+      "ci_low": 0.5777822136878967,
+      "ci_high": 0.9016429781913757
+    },
+    "pr_auc": {
+      "mean": 0.9627163410186768,
+      "ci_low": 0.9185209274291992,
+      "ci_high": 0.9929220676422119
+    }
+  }
+}

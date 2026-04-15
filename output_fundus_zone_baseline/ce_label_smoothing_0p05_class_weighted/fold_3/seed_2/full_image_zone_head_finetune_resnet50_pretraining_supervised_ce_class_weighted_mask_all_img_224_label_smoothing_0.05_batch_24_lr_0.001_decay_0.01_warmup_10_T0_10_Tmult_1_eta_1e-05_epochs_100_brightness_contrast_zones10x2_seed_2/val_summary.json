@@ -1,0 +1,75 @@
+{
+  "split": "val",
+  "loss": 0.5504854583740234,
+  "mean_accuracy": 0.784,
+  "mean_binary_f1": 0.6781851789416508,
+  "mean_precision": 0.6667006196417962,
+  "mean_recall": 0.7047327264239029,
+  "mean_specificity": 0.8243886432921077,
+  "micro_f1_flat": 0.784,
+  "macro_f1_flat": 0.757960413080895,
+  "macro_f1_across_zones": 0.6781851789416508,
+  "observed_zone_labels": 500,
+  "rows_with_observed_zone_labels": 50,
+  "zone_thresholds": [
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5
+  ],
+  "any_positive_visit_f1": 0.6938775510204082,
+  "any_positive_visit_accuracy": 0.7,
+  "any_positive_visit_precision": 0.7727272727272727,
+  "any_positive_visit_sensitivity": 0.6296296296296297,
+  "any_positive_visit_specificity": 0.782608695652174,
+  "any_positive_visit_roc_auc": 0.7262479871175523,
+  "any_positive_visit_pr_auc": 0.7677521108088107,
+  "any_positive_visit": {
+    "n_rows": 50,
+    "f1": 0.6938775510204082,
+    "accuracy": 0.7,
+    "precision": 0.7727272727272727,
+    "sensitivity": 0.6296296296296297,
+    "specificity": 0.782608695652174,
+    "roc_auc": 0.7262479871175523,
+    "pr_auc": 0.7677521108088107
+  },
+  "any_positive_visit_bootstrap_ci": {
+    "f1": {
+      "mean": 0.692793607711792,
+      "ci_low": 0.5263158082962036,
+      "ci_high": 0.8276283144950867
+    },
+    "accuracy": {
+      "mean": 0.7020000219345093,
+      "ci_low": 0.5799999833106995,
+      "ci_high": 0.8199999928474426
+    },
+    "sensitivity": {
+      "mean": 0.6337741613388062,
+      "ci_low": 0.45152947306632996,
+      "ci_high": 0.8148148059844971
+    },
+    "specificity": {
+      "mean": 0.7830466032028198,
+      "ci_low": 0.6000000238418579,
+      "ci_high": 0.9473684430122375
+    },
+    "roc_auc": {
+      "mean": 0.7293640375137329,
+      "ci_low": 0.5657051205635071,
+      "ci_high": 0.8685085773468018
+    },
+    "pr_auc": {
+      "mean": 0.7727500200271606,
+      "ci_low": 0.5948039293289185,
+      "ci_high": 0.9139525890350342
+    }
+  }
+}

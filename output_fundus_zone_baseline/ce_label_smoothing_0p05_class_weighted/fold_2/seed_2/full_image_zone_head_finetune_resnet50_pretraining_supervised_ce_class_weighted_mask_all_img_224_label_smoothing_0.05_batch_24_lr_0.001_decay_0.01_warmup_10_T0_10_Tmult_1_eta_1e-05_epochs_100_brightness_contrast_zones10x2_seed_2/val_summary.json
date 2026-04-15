@@ -1,0 +1,75 @@
+{
+  "split": "val",
+  "loss": 1.029711413383484,
+  "mean_accuracy": 0.6133333333333333,
+  "mean_binary_f1": 0.6379816631264846,
+  "mean_precision": 0.5392696003132436,
+  "mean_recall": 0.8146527191418832,
+  "mean_specificity": 0.4853485339137514,
+  "micro_f1_flat": 0.6133333333333333,
+  "macro_f1_flat": 0.6122303440898555,
+  "macro_f1_across_zones": 0.6379816631264846,
+  "observed_zone_labels": 450,
+  "rows_with_observed_zone_labels": 45,
+  "zone_thresholds": [
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5
+  ],
+  "any_positive_visit_f1": 0.8055555555555556,
+  "any_positive_visit_accuracy": 0.6888888888888889,
+  "any_positive_visit_precision": 0.725,
+  "any_positive_visit_sensitivity": 0.90625,
+  "any_positive_visit_specificity": 0.15384615384615385,
+  "any_positive_visit_roc_auc": 0.7091346153846154,
+  "any_positive_visit_pr_auc": 0.8697057210288686,
+  "any_positive_visit": {
+    "n_rows": 45,
+    "f1": 0.8055555555555556,
+    "accuracy": 0.6888888888888889,
+    "precision": 0.725,
+    "sensitivity": 0.90625,
+    "specificity": 0.15384615384615385,
+    "roc_auc": 0.7091346153846154,
+    "pr_auc": 0.8697057210288686
+  },
+  "any_positive_visit_bootstrap_ci": {
+    "f1": {
+      "mean": 0.8054226040840149,
+      "ci_low": 0.6969696879386902,
+      "ci_high": 0.8974359035491943
+    },
+    "accuracy": {
+      "mean": 0.6914888620376587,
+      "ci_low": 0.5555555820465088,
+      "ci_high": 0.8222222328186035
+    },
+    "sensitivity": {
+      "mean": 0.9064927697181702,
+      "ci_low": 0.800000011920929,
+      "ci_high": 1.0
+    },
+    "specificity": {
+      "mean": 0.15614053606987,
+      "ci_low": 0.0,
+      "ci_high": 0.37524062395095825
+    },
+    "roc_auc": {
+      "mean": 0.7109614014625549,
+      "ci_low": 0.5451629161834717,
+      "ci_high": 0.8600000143051147
+    },
+    "pr_auc": {
+      "mean": 0.8723806738853455,
+      "ci_low": 0.7578413486480713,
+      "ci_high": 0.9580596685409546
+    }
+  }
+}

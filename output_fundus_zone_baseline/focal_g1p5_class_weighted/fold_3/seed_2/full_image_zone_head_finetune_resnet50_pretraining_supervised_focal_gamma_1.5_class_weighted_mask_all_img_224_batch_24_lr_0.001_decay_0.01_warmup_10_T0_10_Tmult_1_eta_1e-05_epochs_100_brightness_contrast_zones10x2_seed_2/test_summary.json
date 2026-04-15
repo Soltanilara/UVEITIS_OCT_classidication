@@ -1,0 +1,75 @@
+{
+  "split": "test",
+  "loss": 0.31607087362896313,
+  "mean_accuracy": 0.6181818181818182,
+  "mean_binary_f1": 0.6066593963638882,
+  "mean_precision": 0.5668441201967378,
+  "mean_recall": 0.6665287671281017,
+  "mean_specificity": 0.582352273861708,
+  "micro_f1_flat": 0.6181818181818182,
+  "macro_f1_flat": 0.6177824806245888,
+  "macro_f1_across_zones": 0.6066593963638882,
+  "observed_zone_labels": 990,
+  "rows_with_observed_zone_labels": 99,
+  "zone_thresholds": [
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5
+  ],
+  "any_positive_visit_f1": 0.7567567567567568,
+  "any_positive_visit_accuracy": 0.6363636363636364,
+  "any_positive_visit_precision": 0.8484848484848485,
+  "any_positive_visit_sensitivity": 0.6829268292682927,
+  "any_positive_visit_specificity": 0.4117647058823529,
+  "any_positive_visit_roc_auc": 0.6875896700143472,
+  "any_positive_visit_pr_auc": 0.9211102682072675,
+  "any_positive_visit": {
+    "n_rows": 99,
+    "f1": 0.7567567567567568,
+    "accuracy": 0.6363636363636364,
+    "precision": 0.8484848484848485,
+    "sensitivity": 0.6829268292682927,
+    "specificity": 0.4117647058823529,
+    "roc_auc": 0.6875896700143472,
+    "pr_auc": 0.9211102682072675
+  },
+  "any_positive_visit_bootstrap_ci": {
+    "f1": {
+      "mean": 0.7561964392662048,
+      "ci_low": 0.6760563254356384,
+      "ci_high": 0.826678991317749
+    },
+    "accuracy": {
+      "mean": 0.6374140977859497,
+      "ci_low": 0.5353535413742065,
+      "ci_high": 0.7272727489471436
+    },
+    "sensitivity": {
+      "mean": 0.6846731901168823,
+      "ci_low": 0.5833333134651184,
+      "ci_high": 0.7831325531005859
+    },
+    "specificity": {
+      "mean": 0.41101956367492676,
+      "ci_low": 0.1764705926179886,
+      "ci_high": 0.6471324563026428
+    },
+    "roc_auc": {
+      "mean": 0.6887000799179077,
+      "ci_low": 0.5671030282974243,
+      "ci_high": 0.7943180203437805
+    },
+    "pr_auc": {
+      "mean": 0.920426070690155,
+      "ci_low": 0.8600322604179382,
+      "ci_high": 0.9630734324455261
+    }
+  }
+}

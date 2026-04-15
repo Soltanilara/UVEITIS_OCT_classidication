@@ -1,0 +1,75 @@
+{
+  "split": "val",
+  "loss": 1.1951577866949685,
+  "mean_accuracy": 0.4890243902439024,
+  "mean_binary_f1": 0.5788528219266313,
+  "mean_precision": 0.42018724235976707,
+  "mean_recall": 0.9468764928611476,
+  "mean_specificity": 0.1934719837805689,
+  "micro_f1_flat": 0.48902439024390243,
+  "macro_f1_flat": 0.4583960591133005,
+  "macro_f1_across_zones": 0.5788528219266313,
+  "observed_zone_labels": 820,
+  "rows_with_observed_zone_labels": 82,
+  "zone_thresholds": [
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5
+  ],
+  "any_positive_visit_f1": 0.8345323741007195,
+  "any_positive_visit_accuracy": 0.7195121951219512,
+  "any_positive_visit_precision": 0.7435897435897436,
+  "any_positive_visit_sensitivity": 0.9508196721311475,
+  "any_positive_visit_specificity": 0.047619047619047616,
+  "any_positive_visit_roc_auc": 0.6213895394223264,
+  "any_positive_visit_pr_auc": 0.8621908220852637,
+  "any_positive_visit": {
+    "n_rows": 82,
+    "f1": 0.8345323741007195,
+    "accuracy": 0.7195121951219512,
+    "precision": 0.7435897435897436,
+    "sensitivity": 0.9508196721311475,
+    "specificity": 0.047619047619047616,
+    "roc_auc": 0.6213895394223264,
+    "pr_auc": 0.8621908220852637
+  },
+  "any_positive_visit_bootstrap_ci": {
+    "f1": {
+      "mean": 0.8318775296211243,
+      "ci_low": 0.7596370577812195,
+      "ci_high": 0.895141065120697
+    },
+    "accuracy": {
+      "mean": 0.7170732021331787,
+      "ci_low": 0.6219512224197388,
+      "ci_high": 0.8170731663703918
+    },
+    "sensitivity": {
+      "mean": 0.9516109824180603,
+      "ci_low": 0.8905816078186035,
+      "ci_high": 1.0
+    },
+    "specificity": {
+      "mean": 0.047211550176143646,
+      "ci_low": 0.0,
+      "ci_high": 0.15789473056793213
+    },
+    "roc_auc": {
+      "mean": 0.6189316511154175,
+      "ci_low": 0.4811939597129822,
+      "ci_high": 0.7536802291870117
+    },
+    "pr_auc": {
+      "mean": 0.8593791723251343,
+      "ci_low": 0.7805449962615967,
+      "ci_high": 0.9283294081687927
+    }
+  }
+}
