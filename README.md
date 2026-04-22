@@ -48,6 +48,21 @@ python preprocessing/CSV_split_generator.py
 python preprocessing/CSV_k_fold_generator.py
 ```
 
+### 3) Extract FA zone masks from yellow overlays
+```bash
+python preprocessing/extract_fa_zone_masks.py \
+  --input-glob "Dataset 01032025/FA_annotated/**/*.png" \
+  --output-dir extracted_fa_zone_masks
+```
+
+Outputs are written per-image and include:
+- `zone_01.png` ... `zone_10.png`
+- `label_map.png`
+- `qc_overlay.png`
+- `geometry.json`
+
+If a registered fundus image shares the same pixel grid as the FA image, the saved masks can be reused directly on the fundus image.
+
 ## Training Commands
 
 ### 1) Binary training (single split)
