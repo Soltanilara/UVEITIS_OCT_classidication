@@ -26,6 +26,12 @@ LOG_DIR="logs/fundus_zone_baseline"
 CSV_PREFIX="fold"
 THRESHOLDS_JSON=""
 FUNDUS_PRETRAINED_CKPT=""
+IMAGE_COLUMN="Image File"
+IMAGE_ABSOLUTE_COLUMN=""
+MASK_COLUMN=""
+MASK_ABSOLUTE_COLUMN=""
+IMAGE_RESOLVER="direct"
+APPLY_MASK=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -69,6 +75,30 @@ while [[ $# -gt 0 ]]; do
       FUNDUS_PRETRAINED_CKPT="$2"
       shift 2
       ;;
+    --image_column)
+      IMAGE_COLUMN="$2"
+      shift 2
+      ;;
+    --image_absolute_column)
+      IMAGE_ABSOLUTE_COLUMN="$2"
+      shift 2
+      ;;
+    --mask_column)
+      MASK_COLUMN="$2"
+      shift 2
+      ;;
+    --mask_absolute_column)
+      MASK_ABSOLUTE_COLUMN="$2"
+      shift 2
+      ;;
+    --image_resolver)
+      IMAGE_RESOLVER="$2"
+      shift 2
+      ;;
+    --apply_mask)
+      APPLY_MASK=1
+      shift 1
+      ;;
     *)
       echo "Unknown argument: $1"
       exit 1
@@ -105,6 +135,8 @@ COMMON_ARGS=(
   --earlystop
   --brightness
   --contrast
+  --image_column "$IMAGE_COLUMN"
+  --image_resolver "$IMAGE_RESOLVER"
 )
 
 if [[ -n "$THRESHOLDS_JSON" ]]; then
@@ -113,6 +145,22 @@ fi
 
 if [[ -n "$FUNDUS_PRETRAINED_CKPT" ]]; then
   COMMON_ARGS+=(--fundus_pretrained_ckpt "$FUNDUS_PRETRAINED_CKPT")
+fi
+
+if [[ -n "$IMAGE_ABSOLUTE_COLUMN" ]]; then
+  COMMON_ARGS+=(--image_absolute_column "$IMAGE_ABSOLUTE_COLUMN")
+fi
+
+if [[ -n "$MASK_COLUMN" ]]; then
+  COMMON_ARGS+=(--mask_column "$MASK_COLUMN")
+fi
+
+if [[ -n "$MASK_ABSOLUTE_COLUMN" ]]; then
+  COMMON_ARGS+=(--mask_absolute_column "$MASK_ABSOLUTE_COLUMN")
+fi
+
+if [[ "$APPLY_MASK" -eq 1 ]]; then
+  COMMON_ARGS+=(--apply_mask)
 fi
 
 # Format: "experiment_name|extra args"
