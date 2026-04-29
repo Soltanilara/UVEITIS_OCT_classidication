@@ -264,6 +264,99 @@ def refine_radii(mask: np.ndarray, center_xy: tuple[float, float], outer_radius_
     return inner_radius, outer_radius
 
 
+def get_centroid(contour: np.ndarray) -> tuple[int | None, int | None]:
+    moments = cv2.moments(contour)
+    if moments["m00"] == 0:
+        return None, None
+    return int(moments["m10"] / moments["m00"]), int(moments["m01"] / moments["m00"])
+
+
+def label_contours_for_ten(contours: list[np.ndarray], height: int, width: int) -> np.ndarray:
+    label_map = np.zeros((height, width), dtype=np.uint8)
+    cv2.drawContours(label_map, [contours[0]], -1, 255, thickness=cv2.FILLED)
+    label_map = np.where(label_map == 0, 10, 0).astype(np.uint8)
+
+    quad_contours = contours[1:5]
+    centroids = [(get_centroid(contour), contour) for contour in quad_contours]
+    centroids_sorted_by_y = sorted(centroids, key=lambda item: item[0][1])
+    upper_two = sorted(centroids_sorted_by_y[:2], key=lambda item: item[0][0])
+    lower_two = sorted(centroids_sorted_by_y[2:], key=lambda item: item[0][0])
+
+    for zone_num, ((_cx, _cy), contour) in zip([8, 7], lower_two):
+        cv2.drawContours(label_map, [contour], -1, zone_num, thickness=cv2.FILLED)
+    for zone_num, ((_cx, _cy), contour) in zip([5, 6], upper_two):
+        cv2.drawContours(label_map, [contour], -1, zone_num, thickness=cv2.FILLED)
+
+    small_contours = contours[5:10]
+    small_centroids = [(get_centroid(contour), contour) for contour in small_contours]
+    small_sorted_by_x = sorted(small_centroids, key=lambda item: item[0][0])
+
+    (_cx, _cy), disc_contour = small_sorted_by_x[0]
+    cv2.drawContours(label_map, [disc_contour], -1, 9, thickness=cv2.FILLED)
+
+    remaining_sorted_by_y = sorted(small_sorted_by_x[1:], key=lambda item: item[0][1])
+    upper_two_small = sorted(remaining_sorted_by_y[:2], key=lambda item: item[0][0])
+    lower_two_small = sorted(remaining_sorted_by_y[2:], key=lambda item: item[0][0])
+
+    for zone_num, ((_cx, _cy), contour) in zip([3, 4], lower_two_small):
+        cv2.drawContours(label_map, [contour], -1, zone_num, thickness=cv2.FILLED)
+    for zone_num, ((_cx, _cy), contour) in zip([1, 2], upper_two_small):
+        cv2.drawContours(label_map, [contour], -1, zone_num, thickness=cv2.FILLED)
+
+    return label_map
+
+
+def label_contours_for_eleven(contours: list[np.ndarray], height: int, width: int) -> np.ndarray:
+    label_map = np.zeros((height, width), dtype=np.uint8)
+    cv2.drawContours(label_map, [contours[0]], -1, 255, thickness=cv2.FILLED)
+    label_map = np.where(label_map == 0, 10, 0).astype(np.uint8)
+
+    quad_contours = contours[1:5]
+    centroids = [(get_centroid(contour), contour) for contour in quad_contours]
+    centroids_sorted_by_y = sorted(centroids, key=lambda item: item[0][1])
+    upper_two = sorted(centroids_sorted_by_y[:2], key=lambda item: item[0][0])
+    lower_two = sorted(centroids_sorted_by_y[2:], key=lambda item: item[0][0])
+
+    for zone_num, ((_cx, _cy), contour) in zip([8, 7], lower_two):
+        cv2.drawContours(label_map, [contour], -1, zone_num, thickness=cv2.FILLED)
+    for zone_num, ((_cx, _cy), contour) in zip([5, 6], upper_two):
+        cv2.drawContours(label_map, [contour], -1, zone_num, thickness=cv2.FILLED)
+
+    small_contours = contours[5:11]
+    small_centroids = [(get_centroid(contour), contour) for contour in small_contours]
+    small_sorted_by_x = sorted(small_centroids, key=lambda item: item[0][0])
+
+    for (_cx, _cy), contour in small_sorted_by_x[:2]:
+        cv2.drawContours(label_map, [contour], -1, 9, thickness=cv2.FILLED)
+
+    remaining_sorted_by_y = sorted(small_sorted_by_x[2:], key=lambda item: item[0][1])
+    upper_two_small = sorted(remaining_sorted_by_y[:2], key=lambda item: item[0][0])
+    lower_two_small = sorted(remaining_sorted_by_y[2:], key=lambda item: item[0][0])
+
+    for zone_num, ((_cx, _cy), contour) in zip([3, 4], lower_two_small):
+        cv2.drawContours(label_map, [contour], -1, zone_num, thickness=cv2.FILLED)
+    for zone_num, ((_cx, _cy), contour) in zip([1, 2], upper_two_small):
+        cv2.drawContours(label_map, [contour], -1, zone_num, thickness=cv2.FILLED)
+
+    return label_map
+
+
+def contour_label_map_from_rgb(rgb: np.ndarray) -> tuple[np.ndarray, int]:
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+    yellow = cv2.inRange(hsv, np.array([20, 100, 100]), np.array([35, 255, 255]))
+    yellow = cv2.dilate(yellow, np.ones((3, 3), np.uint8), iterations=1)
+    contours, _ = cv2.findContours(yellow, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    contours = [contour for contour in contours if cv2.contourArea(contour) > 500]
+    contours = sorted(contours, key=cv2.contourArea, reverse=True)
+    height, width = rgb.shape[:2]
+
+    if len(contours) == 10:
+        return label_contours_for_ten(contours, height, width), 10
+    if len(contours) == 11:
+        return label_contours_for_eleven(contours, height, width), 11
+    raise RuntimeError(f"Contour fallback found {len(contours)} contours, expected 10/11.")
+
+
 def detect_disc_circle(mask: np.ndarray, center_xy: tuple[float, float], inner_radius: float, outer_radius: float) -> tuple[tuple[float, float], float]:
     cy_grid, cx_grid = np.indices(mask.shape)
     cx, cy = center_xy
@@ -445,7 +538,11 @@ def build_label_map(zone_masks: dict[int, np.ndarray]) -> np.ndarray:
     return label_map
 
 
-def make_qc_overlay(rgb: np.ndarray, zone_masks: dict[int, np.ndarray], geometry: Geometry) -> np.ndarray:
+def zone_masks_from_label_map(label_map: np.ndarray) -> dict[int, np.ndarray]:
+    return {zone: label_map == zone for zone in range(1, 11)}
+
+
+def make_qc_overlay(rgb: np.ndarray, zone_masks: dict[int, np.ndarray], geometry: Geometry | None) -> np.ndarray:
     overlay = rgb.copy()
     colors = {
         1: (255, 0, 0),
@@ -463,12 +560,13 @@ def make_qc_overlay(rgb: np.ndarray, zone_masks: dict[int, np.ndarray], geometry
         mask = zone_masks[zone]
         overlay[mask] = (0.65 * overlay[mask] + 0.35 * np.array(color)).astype(np.uint8)
 
-    cx, cy = map(int, map(round, geometry.center_xy))
-    disc_cx, disc_cy = map(int, map(round, geometry.disc_center_xy))
-    cv2.circle(overlay, (cx, cy), int(round(geometry.inner_radius)), (255, 255, 255), 2)
-    cv2.circle(overlay, (cx, cy), int(round(geometry.outer_radius)), (255, 255, 255), 2)
-    cv2.circle(overlay, (disc_cx, disc_cy), int(round(geometry.disc_radius)), (255, 255, 255), 2)
-    cv2.putText(overlay, geometry.eye, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
+    if geometry is not None:
+        cx, cy = map(int, map(round, geometry.center_xy))
+        disc_cx, disc_cy = map(int, map(round, geometry.disc_center_xy))
+        cv2.circle(overlay, (cx, cy), int(round(geometry.inner_radius)), (255, 255, 255), 2)
+        cv2.circle(overlay, (cx, cy), int(round(geometry.outer_radius)), (255, 255, 255), 2)
+        cv2.circle(overlay, (disc_cx, disc_cy), int(round(geometry.disc_radius)), (255, 255, 255), 2)
+        cv2.putText(overlay, geometry.eye, (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2, cv2.LINE_AA)
     return overlay
 
 
@@ -497,31 +595,39 @@ def process_image(
     retina_mask = build_retina_mask(rgb, threshold=retina_threshold)
     yellow_mask = detect_yellow_overlay(rgb, sat_threshold=yellow_s_threshold, val_threshold=yellow_v_threshold)
 
-    circles = hough_circle_candidates(yellow_mask)
-    outer_circle, inner_circle = choose_concentric_pair(circles, rgb.shape[:2])
-    center_xy = ((float(outer_circle[0] + inner_circle[0]) / 2.0), (float(outer_circle[1] + inner_circle[1]) / 2.0))
-    inner_radius, outer_radius = refine_radii(
-        yellow_mask,
-        center_xy=center_xy,
-        outer_radius_guess=float(outer_circle[2]),
-        inner_radius_guess=float(inner_circle[2]),
-    )
-    disc_center_xy, disc_radius = detect_disc_circle(yellow_mask, center_xy=center_xy, inner_radius=inner_radius, outer_radius=outer_radius)
-    axis_a, axis_b = detect_axes(yellow_mask, center_xy=center_xy, inner_radius=inner_radius, outer_radius=outer_radius)
-    disc_axis, vertical_axis, eye = orient_axes(disc_center_xy, center_xy, axis_a, axis_b)
+    try:
+        label_map, contour_count = contour_label_map_from_rgb(rgb)
+        zone_masks = zone_masks_from_label_map(label_map)
+        geometry = None
+        extraction_method = f"contours_{contour_count}"
+    except Exception as contour_exc:
+        circles = hough_circle_candidates(yellow_mask)
+        outer_circle, inner_circle = choose_concentric_pair(circles, rgb.shape[:2])
+        center_xy = ((float(outer_circle[0] + inner_circle[0]) / 2.0), (float(outer_circle[1] + inner_circle[1]) / 2.0))
+        inner_radius, outer_radius = refine_radii(
+            yellow_mask,
+            center_xy=center_xy,
+            outer_radius_guess=float(outer_circle[2]),
+            inner_radius_guess=float(inner_circle[2]),
+        )
+        disc_center_xy, disc_radius = detect_disc_circle(yellow_mask, center_xy=center_xy, inner_radius=inner_radius, outer_radius=outer_radius)
+        axis_a, axis_b = detect_axes(yellow_mask, center_xy=center_xy, inner_radius=inner_radius, outer_radius=outer_radius)
+        disc_axis, vertical_axis, eye = orient_axes(disc_center_xy, center_xy, axis_a, axis_b)
 
-    geometry = Geometry(
-        center_xy=center_xy,
-        inner_radius=inner_radius,
-        outer_radius=outer_radius,
-        disc_center_xy=disc_center_xy,
-        disc_radius=disc_radius,
-        eye=eye,
-        disc_axis_xy=(float(disc_axis[0]), float(disc_axis[1])),
-        vertical_axis_xy=(float(vertical_axis[0]), float(vertical_axis[1])),
-    )
-    zone_masks = build_zone_masks(rgb.shape[:2], retina_mask, geometry)
-    label_map = build_label_map(zone_masks)
+        geometry = Geometry(
+            center_xy=center_xy,
+            inner_radius=inner_radius,
+            outer_radius=outer_radius,
+            disc_center_xy=disc_center_xy,
+            disc_radius=disc_radius,
+            eye=eye,
+            disc_axis_xy=(float(disc_axis[0]), float(disc_axis[1])),
+            vertical_axis_xy=(float(vertical_axis[0]), float(vertical_axis[1])),
+        )
+        zone_masks = build_zone_masks(rgb.shape[:2], retina_mask, geometry)
+        label_map = build_label_map(zone_masks)
+        extraction_method = f"geometry_fallback: {contour_exc}"
+
     qc_overlay = make_qc_overlay(rgb, zone_masks, geometry)
 
     image_output_dir = build_output_dir_for_image(path, output_dir, input_root)
@@ -534,7 +640,8 @@ def process_image(
     save_mask(retina_mask, image_output_dir / "retina_mask.png")
     save_mask(yellow_mask, image_output_dir / "yellow_overlay_mask.png")
     with open(image_output_dir / "geometry.json", "w", encoding="utf-8") as f:
-        json.dump(geometry_to_json(geometry), f, indent=2)
+        payload = geometry_to_json(geometry) if geometry is not None else {"method": extraction_method}
+        json.dump(payload, f, indent=2)
     return image_output_dir
 
 

@@ -28,3 +28,5 @@ output*/**/history.jpeg
 !**/*.csv
 !**/*.json
 
+Dataset-UVEITIS/
+

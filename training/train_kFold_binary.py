@@ -88,6 +88,18 @@ parser.add_argument("--csvpath", type=str, default="fold_0")
 parser.add_argument("--metadata_path", type=str, default="metadata_0")
 parser.add_argument("--dataset_path", type=str, default="Dataset 01032025")
 parser.add_argument("--output_path", type=str, default="output_fold_0")
+parser.add_argument("--image_column", type=str, default="Image File")
+parser.add_argument("--image_absolute_column", type=str, default="")
+parser.add_argument("--mask_column", type=str, default="")
+parser.add_argument("--mask_absolute_column", type=str, default="")
+parser.add_argument(
+    "--image_resolver",
+    type=str,
+    default="direct",
+    choices=["direct", "fundus_from_fa_pair"],
+    help="How to resolve rows in --image_column to a local file.",
+)
+parser.add_argument("--apply_mask", action="store_true", help="Apply a binary version of each mask to its image before transforms.")
 parser.add_argument("--drop_missing_zone_rows", type=str, default="all", choices=["none", "any", "all"])
 parser.add_argument(
     "--input_mode",
@@ -241,6 +253,56 @@ def resolve_image_path(base_folder: str, rel_path: str) -> str:
     )
 
 
+def resolve_optional_path(base_folder: str, path_value: Any) -> str | None:
+    if pd.isna(path_value):
+        return None
+    path_str = str(path_value).strip()
+    if not path_str:
+        return None
+    if os.path.isabs(path_str) and os.path.exists(path_str):
+        return path_str
+    return resolve_image_path(base_folder, path_str)
+
+
+def resolve_fundus_path_from_fa_pair(base_folder: str, fa_rel_path: str, uwffp_value: str) -> str:
+    fa_parent = os.path.dirname(str(fa_rel_path).replace("\\", "/"))
+    fa_name = os.path.basename(str(fa_rel_path).replace("\\", "/"))
+    folder = os.path.join(base_folder, fa_parent)
+    fundus_name = os.path.basename(str(uwffp_value).replace("\\", "/"))
+
+    candidate = os.path.join(folder, fundus_name)
+    if os.path.exists(candidate):
+        return candidate
+
+    expected_name = fa_name.replace("_FA_", "_FP_").replace("_0001.", "_0000.")
+    stem, _ = os.path.splitext(expected_name)
+    tried = [candidate]
+    for fallback_ext in FALLBACK_EXTS:
+        for ext_candidate in (stem + fallback_ext, stem + fallback_ext.upper()):
+            candidate = os.path.join(folder, ext_candidate)
+            tried.append(candidate)
+            if os.path.exists(candidate):
+                return candidate
+
+    eye_token = "_OD_" if "_OD_" in fa_name else "_OS_" if "_OS_" in fa_name else ""
+    if os.path.isdir(folder):
+        eye_candidates = sorted(
+            fname for fname in os.listdir(folder) if (not eye_token or eye_token in fname) and "FP" in fname.upper()
+        )
+        if len(eye_candidates) == 1:
+            return os.path.join(folder, eye_candidates[0])
+        for eye_candidate in eye_candidates:
+            if "_FP_" in eye_candidate:
+                return os.path.join(folder, eye_candidate)
+
+    raise FileNotFoundError(
+        "Fundus image not found from FA/fundus pair resolution.\n"
+        f"FA relative path: {fa_rel_path}\n"
+        f"UWFFP value: {uwffp_value}\n"
+        f"Tried: {tried[:8]}{' ...' if len(tried) > 8 else ''}"
+    )
+
+
 def _drop_rows_by_missing_policy(df: pd.DataFrame, zone_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
     if args.drop_missing_zone_rows == "none":
         keep_mask = np.ones(len(df), dtype=bool)
@@ -257,6 +319,7 @@ def _drop_rows_by_missing_policy(df: pd.DataFrame, zone_df: pd.DataFrame) -> tup
 
 
 def build_visit_ids(df: pd.DataFrame) -> list[str]:
+    image_id_series = df[args.image_column].astype(str) if args.image_column in df.columns else df.iloc[:, 0].astype(str)
     if {"Patient_ID", "Eye", "Visit_Date"}.issubset(df.columns):
         visit_series = (
             df["Patient_ID"].astype(str)
@@ -265,17 +328,17 @@ def build_visit_ids(df: pd.DataFrame) -> list[str]:
             + "|"
             + df["Visit_Date"].astype(str)
             + "|"
-            + df["Image File"].astype(str)
+            + image_id_series
         )
         return visit_series.tolist()
-    return df["Image File"].astype(str).tolist()
+    return image_id_series.tolist()
 
 
 def load_data(csv_file: str, csvpath: str, folder: str):
     csv_full_path = os.path.join(csvpath, csv_file)
     df = pd.read_csv(csv_full_path)
 
-    required_cols = ["Image File", *ZONE_COLUMNS]
+    required_cols = [args.image_column, *ZONE_COLUMNS]
     missing = [c for c in required_cols if c not in df.columns]
     if missing:
         raise ValueError(f"CSV {csv_full_path} is missing required columns: {missing}")
@@ -290,14 +353,33 @@ def load_data(csv_file: str, csvpath: str, folder: str):
         binary_df[col] = binary_df[col].map(lambda x: pd.NA if pd.isna(x) else int(int(x) != 0))
 
     labels_df = binary_df.fillna(-1).astype(int)
-    paths = df["Image File"].astype(str).apply(lambda x: resolve_image_path(folder, x)).tolist()
+    paths = []
+    mask_paths = []
+    for _, row in df.iterrows():
+        if args.image_absolute_column and args.image_absolute_column in df.columns and not pd.isna(row[args.image_absolute_column]):
+            image_path = resolve_optional_path(folder, row[args.image_absolute_column])
+        elif args.image_resolver == "fundus_from_fa_pair":
+            if "Image_File(FA)" not in df.columns or "UWFFP" not in df.columns:
+                raise ValueError("--image_resolver fundus_from_fa_pair requires Image_File(FA) and UWFFP columns.")
+            image_path = resolve_fundus_path_from_fa_pair(folder, row["Image_File(FA)"], row["UWFFP"])
+        else:
+            image_path = resolve_image_path(folder, str(row[args.image_column]))
+        paths.append(image_path)
+
+        mask_path = None
+        if args.mask_absolute_column and args.mask_absolute_column in df.columns:
+            mask_path = resolve_optional_path(folder, row[args.mask_absolute_column])
+        elif args.mask_column and args.mask_column in df.columns:
+            mask_path = resolve_optional_path(folder, row[args.mask_column])
+        mask_paths.append(mask_path)
 
     metadata = {
-        "image_files": df["Image File"].astype(str).tolist(),
+        "image_files": df[args.image_column].astype(str).tolist(),
         "visit_ids": build_visit_ids(df),
-        "patient_ids": df["Patient_ID"].astype(str).tolist() if "Patient_ID" in df.columns else df["Image File"].astype(str).tolist(),
+        "patient_ids": df["Patient_ID"].astype(str).tolist() if "Patient_ID" in df.columns else df[args.image_column].astype(str).tolist(),
         "eyes": df["Eye"].astype(str).tolist() if "Eye" in df.columns else [""] * len(df),
         "visit_dates": df["Visit_Date"].astype(str).tolist() if "Visit_Date" in df.columns else [""] * len(df),
+        "mask_files": mask_paths,
     }
 
     labels = torch.tensor(labels_df.to_numpy(dtype=np.int64), dtype=torch.long)
@@ -435,10 +517,25 @@ class CustomImageDataset(Dataset):
 
     def __getitem__(self, idx):
         image = Image.open(self.paths[idx]).convert("RGB")
+        mask_path = self.metadata["mask_files"][idx]
+        if args.apply_mask:
+            if mask_path is None:
+                raise ValueError(f"--apply_mask is enabled but no mask is available for index {idx}: {self.paths[idx]}")
+            mask = np.load(mask_path)
+            if mask.ndim != 2:
+                raise ValueError(f"Expected 2D label map in {mask_path}, got shape {mask.shape}")
+            if mask.shape != (image.height, image.width):
+                mask = np.array(
+                    Image.fromarray(mask.astype(np.uint8), mode="L").resize(image.size, Image.Resampling.NEAREST),
+                    dtype=np.uint8,
+                )
+            image_arr = np.array(image, dtype=np.uint8)
+            image = Image.fromarray(image_arr * (mask > 0)[..., None].astype(np.uint8), mode="RGB")
         sample = {
             "labels": self.labels[idx],
             "observed_mask": self.observed_mask[idx],
             "image_file": self.metadata["image_files"][idx],
+            "mask_file": mask_path or "",
             "visit_id": self.metadata["visit_ids"][idx],
             "patient_id": self.metadata["patient_ids"][idx],
             "eye": self.metadata["eyes"][idx],
@@ -1649,6 +1746,12 @@ def save_train_metadata(best_epoch: int | None, best_val_mean_f1: float | None):
         "label_smoothing": float(args.label_smoothing),
         "loss": args.loss,
         "gamma": float(args.gamma),
+        "image_column": args.image_column,
+        "image_absolute_column": args.image_absolute_column,
+        "mask_column": args.mask_column,
+        "mask_absolute_column": args.mask_absolute_column,
+        "image_resolver": args.image_resolver,
+        "apply_mask": bool(args.apply_mask),
         "fundus_pretrained_ckpt": args.fundus_pretrained_ckpt,
         "zone_template_json": args.zone_template_json if zone_template is not None else "",
         "swa_enabled": bool(args.swa),
