@@ -36,6 +36,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--input-root", required=True, help="Directory containing fold_*/ train/val/test CSVs.")
     parser.add_argument("--output-root", required=True, help="Directory where enriched fold_* CSVs will be written.")
     parser.add_argument("--drop-missing-mask", action="store_true", help="Drop split rows that do not have a matched mask.")
+    parser.add_argument("--dataset-root", default="", help="Optional dataset root used to verify that the image file exists.")
+    parser.add_argument("--image-column", default="Image File", help="Relative image-path column to validate under --dataset-root.")
+    parser.add_argument("--drop-missing-image", action="store_true", help="Drop split rows whose image file does not exist under --dataset-root.")
     return parser.parse_args()
 
 
@@ -52,7 +55,14 @@ def build_lookup(ready_df: pd.DataFrame) -> pd.DataFrame:
     return lookup
 
 
-def enrich_split(split_csv: Path, lookup: pd.DataFrame, drop_missing_mask: bool) -> pd.DataFrame:
+def enrich_split(
+    split_csv: Path,
+    lookup: pd.DataFrame,
+    drop_missing_mask: bool,
+    dataset_root: Path | None,
+    image_column: str,
+    drop_missing_image: bool,
+) -> pd.DataFrame:
     split_df = pd.read_csv(split_csv)
     if JOIN_KEY not in split_df.columns:
         raise ValueError(f"{split_csv} is missing join key column {JOIN_KEY!r}")
@@ -62,6 +72,14 @@ def enrich_split(split_csv: Path, lookup: pd.DataFrame, drop_missing_mask: bool)
 
     if drop_missing_mask:
         merged = merged.loc[matched].reset_index(drop=True)
+
+    if drop_missing_image:
+        if dataset_root is None:
+            raise ValueError("--drop-missing-image requires --dataset-root.")
+        if image_column not in merged.columns:
+            raise ValueError(f"{split_csv} is missing image column {image_column!r}")
+        exists = merged[image_column].map(lambda rel: (dataset_root / str(rel)).exists())
+        merged = merged.loc[exists].reset_index(drop=True)
 
     return merged
 
@@ -74,6 +92,7 @@ def main() -> None:
     input_root = Path(args.input_root)
     output_root = Path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
+    dataset_root = Path(args.dataset_root) if args.dataset_root else None
 
     split_names = ("train.csv", "val.csv", "test.csv", "train_final.csv")
 
@@ -88,7 +107,14 @@ def main() -> None:
             split_csv = fold_dir / split_name
             if not split_csv.exists():
                 continue
-            enriched = enrich_split(split_csv, lookup, drop_missing_mask=args.drop_missing_mask)
+            enriched = enrich_split(
+                split_csv,
+                lookup,
+                drop_missing_mask=args.drop_missing_mask,
+                dataset_root=dataset_root,
+                image_column=args.image_column,
+                drop_missing_image=args.drop_missing_image,
+            )
             enriched.to_csv(out_fold_dir / split_name, index=False)
             print(f"Wrote {out_fold_dir / split_name} ({len(enriched)} rows)")
 
