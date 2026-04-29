@@ -32,6 +32,9 @@ MASK_COLUMN=""
 MASK_ABSOLUTE_COLUMN=""
 IMAGE_RESOLVER="direct"
 APPLY_MASK=0
+INPUT_MODE="full_image_zone_head"
+BATCH_SIZE=24
+IMAGE_SIZE=224
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -99,6 +102,18 @@ while [[ $# -gt 0 ]]; do
       APPLY_MASK=1
       shift 1
       ;;
+    --input_mode)
+      INPUT_MODE="$2"
+      shift 2
+      ;;
+    --batch_size)
+      BATCH_SIZE="$2"
+      shift 2
+      ;;
+    --image_size)
+      IMAGE_SIZE="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown argument: $1"
       exit 1
@@ -127,10 +142,10 @@ COMMON_ARGS=(
   --model resnet50
   --protocol finetune
   --pretraining supervised
-  --input_mode full_image_zone_head
+  --input_mode "$INPUT_MODE"
   --drop_missing_zone_rows all
-  --image_size 224
-  --batch_size 24
+  --image_size "$IMAGE_SIZE"
+  --batch_size "$BATCH_SIZE"
   --num_epochs 100
   --earlystop
   --brightness

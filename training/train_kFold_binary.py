@@ -105,7 +105,7 @@ parser.add_argument(
     "--input_mode",
     type=str,
     default="full_image_zone_head",
-    choices=["full_image_zone_head", "zone_crops_shared", "hybrid_global_plus_zone"],
+    choices=["full_image_zone_head", "zone_crops_shared", "hybrid_global_plus_zone", "zone_masked_shared"],
 )
 parser.add_argument("--zone_template_json", type=str, default="configs/fundus_10zone_template.json")
 parser.add_argument("--thresholds_json", type=str, default="")
@@ -495,6 +495,19 @@ def extract_zone_crops(image: Image.Image, zone_template: list[tuple[float, floa
     return crops
 
 
+def extract_zone_masked_images(image: Image.Image, mask: np.ndarray) -> list[Image.Image]:
+    if mask.ndim != 2:
+        raise ValueError(f"Expected 2D label map for zone masking, got shape {mask.shape}")
+
+    image_arr = np.array(image, dtype=np.uint8)
+    masked_images = []
+    for zone_idx in range(NUM_ZONES):
+        zone_id = zone_idx + 1
+        zone_mask = (mask == zone_id).astype(np.uint8)
+        masked_images.append(Image.fromarray(image_arr * zone_mask[..., None], mode="RGB"))
+    return masked_images
+
+
 class CustomImageDataset(Dataset):
     def __init__(
         self,
@@ -518,9 +531,10 @@ class CustomImageDataset(Dataset):
     def __getitem__(self, idx):
         image = Image.open(self.paths[idx]).convert("RGB")
         mask_path = self.metadata["mask_files"][idx]
-        if args.apply_mask:
+        mask = None
+        if args.apply_mask or self.input_mode == "zone_masked_shared":
             if mask_path is None:
-                raise ValueError(f"--apply_mask is enabled but no mask is available for index {idx}: {self.paths[idx]}")
+                raise ValueError(f"Mask-aware input is enabled but no mask is available for index {idx}: {self.paths[idx]}")
             mask = np.load(mask_path)
             if mask.ndim != 2:
                 raise ValueError(f"Expected 2D label map in {mask_path}, got shape {mask.shape}")
@@ -529,6 +543,7 @@ class CustomImageDataset(Dataset):
                     Image.fromarray(mask.astype(np.uint8), mode="L").resize(image.size, Image.Resampling.NEAREST),
                     dtype=np.uint8,
                 )
+        if args.apply_mask:
             image_arr = np.array(image, dtype=np.uint8)
             image = Image.fromarray(image_arr * (mask > 0)[..., None].astype(np.uint8), mode="RGB")
         sample = {
@@ -554,6 +569,17 @@ class CustomImageDataset(Dataset):
                 raise ValueError("crop_transform is required for crop-based input modes.")
             crops = extract_zone_crops(image, self.zone_template)
             sample["zone_crops"] = torch.stack([self.crop_transform(crop) for crop in crops], dim=0)
+
+        if self.input_mode == "zone_masked_shared":
+            if self.full_image_transform is None:
+                raise ValueError("full_image_transform is required for zone_masked_shared mode.")
+            if mask is None:
+                raise ValueError("zone_masked_shared mode requires a zone mask.")
+            zone_masked_images = extract_zone_masked_images(image, mask)
+            sample["zone_masked_images"] = torch.stack(
+                [self.full_image_transform(zone_image) for zone_image in zone_masked_images],
+                dim=0,
+            )
 
         return sample
 
@@ -629,6 +655,27 @@ class ZoneCropSharedClassifier(nn.Module):
         flat_crops = zone_crops.reshape(batch_size * num_zones, channels, height, width)
         crop_feats = self.crop_encoder(flat_crops).reshape(batch_size, num_zones, -1)
         logits = [self.heads[z](crop_feats[:, z, :]).unsqueeze(1) for z in range(NUM_ZONES)]
+        return torch.cat(logits, dim=1)
+
+
+class ZoneMaskedSharedClassifier(nn.Module):
+    def __init__(self, zone_encoder: BackboneEncoder, feature_dim: int):
+        super().__init__()
+        self.zone_encoder = zone_encoder
+        self.heads = nn.ModuleList([nn.Linear(feature_dim, NUM_CLASSES) for _ in range(NUM_ZONES)])
+
+    def forward(
+        self,
+        full_image: torch.Tensor | None = None,
+        zone_crops: torch.Tensor | None = None,
+        zone_masked_images: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        if zone_masked_images is None:
+            raise ValueError("zone_masked_shared mode requires zone_masked_images input.")
+        batch_size, num_zones, channels, height, width = zone_masked_images.shape
+        flat_images = zone_masked_images.reshape(batch_size * num_zones, channels, height, width)
+        zone_feats = self.zone_encoder(flat_images).reshape(batch_size, num_zones, -1)
+        logits = [self.heads[z](zone_feats[:, z, :]).unsqueeze(1) for z in range(NUM_ZONES)]
         return torch.cat(logits, dim=1)
 
 
@@ -872,6 +919,13 @@ def build_model() -> nn.Module:
         model = ZoneCropSharedClassifier(crop_encoder, crop_dim)
         if args.fundus_pretrained_ckpt:
             flexible_load_state_dict(model.crop_encoder, args.fundus_pretrained_ckpt, strip_prefixes=["encoder.", "crop_encoder."])
+        return model
+
+    if args.input_mode == "zone_masked_shared":
+        zone_encoder, zone_dim = build_encoder()
+        model = ZoneMaskedSharedClassifier(zone_encoder, zone_dim)
+        if args.fundus_pretrained_ckpt:
+            flexible_load_state_dict(model.zone_encoder, args.fundus_pretrained_ckpt, strip_prefixes=["encoder.", "zone_encoder."])
         return model
 
     if args.input_mode == "hybrid_global_plus_zone":
@@ -1292,10 +1346,13 @@ def forward_logits(model: nn.Module, batch: dict[str, Any]):
         logits = logits_raw.reshape(-1, NUM_ZONES, NUM_CLASSES)
         return logits, reg_term
 
-    outputs = model(
-        full_image=batch.get("full_image"),
-        zone_crops=batch.get("zone_crops"),
-    )
+    if args.input_mode == "zone_masked_shared":
+        outputs = model(zone_masked_images=batch.get("zone_masked_images"))
+    else:
+        outputs = model(
+            full_image=batch.get("full_image"),
+            zone_crops=batch.get("zone_crops"),
+        )
     if outputs.ndim != 3 or outputs.shape[1:] != (NUM_ZONES, NUM_CLASSES):
         raise RuntimeError(f"Expected model output shape [B, {NUM_ZONES}, {NUM_CLASSES}] but got {tuple(outputs.shape)}")
     return outputs, reg_term
