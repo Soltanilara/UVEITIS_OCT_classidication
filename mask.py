@@ -333,6 +333,7 @@ def create_zone_masks(
     inner_radius_mm=INNER_RADIUS_MM,
     outer_radius_mm=OUTER_RADIUS_MM,
     overlay_stroke_width_px=OVERLAY_STROKE_WIDTH_PX,
+    output_suffix="_masks.npy",
 ):
     image = load_image_rgb(image_path)
     contour_error = None
@@ -356,7 +357,7 @@ def create_zone_masks(
         except Exception as contour_exc:
             raise RuntimeError(f"geometry_failed={geometry_error}; contour_failed={contour_exc}") from contour_exc
 
-    save_path = str(Path(image_path).with_suffix("")) + "_masks.npy"
+    save_path = str(Path(image_path).with_suffix("")) + output_suffix
     np.save(save_path, labeled_mask)
     return {
         "save_path": save_path,
@@ -375,6 +376,7 @@ def run_mask_extraction(
     inner_radius_mm=INNER_RADIUS_MM,
     outer_radius_mm=OUTER_RADIUS_MM,
     overlay_stroke_width_px=OVERLAY_STROKE_WIDTH_PX,
+    output_suffix="_masks.npy",
 ):
     ok, skip, err = 0, 0, 0
     method_counts = {}
@@ -396,6 +398,7 @@ def run_mask_extraction(
                     inner_radius_mm=inner_radius_mm,
                     outer_radius_mm=outer_radius_mm,
                     overlay_stroke_width_px=overlay_stroke_width_px,
+                    output_suffix=output_suffix,
                 )
                 if result:
                     ok += 1
@@ -484,6 +487,7 @@ def create_masks_from_csv(
     inner_radius_mm=INNER_RADIUS_MM,
     outer_radius_mm=OUTER_RADIUS_MM,
     overlay_stroke_width_px=OVERLAY_STROKE_WIDTH_PX,
+    output_suffix="_masks.npy",
 ): 
     df = pd.read_csv(csv_path)
     
@@ -500,6 +504,7 @@ def create_masks_from_csv(
         inner_radius_mm=inner_radius_mm,
         outer_radius_mm=outer_radius_mm,
         overlay_stroke_width_px=overlay_stroke_width_px,
+        output_suffix=output_suffix,
     )
 
 if __name__ == "__main__":
@@ -512,6 +517,7 @@ if __name__ == "__main__":
     parser.add_argument("--inner_radius_mm", type=float, default=INNER_RADIUS_MM, help="Inner circle radius in mm")
     parser.add_argument("--outer_radius_mm", type=float, default=OUTER_RADIUS_MM, help="Outer circle radius in mm")
     parser.add_argument("--overlay_stroke_width_px", type=float, default=OVERLAY_STROKE_WIDTH_PX, help="Overlay stroke width in pixels")
+    parser.add_argument("--output_suffix", type=str, default="_masks.npy", help="Suffix appended to each image stem for saved mask files")
     args = parser.parse_args()
 
     create_masks_from_csv(
@@ -523,4 +529,5 @@ if __name__ == "__main__":
         inner_radius_mm=args.inner_radius_mm,
         outer_radius_mm=args.outer_radius_mm,
         overlay_stroke_width_px=args.overlay_stroke_width_px,
+        output_suffix=args.output_suffix,
     )
