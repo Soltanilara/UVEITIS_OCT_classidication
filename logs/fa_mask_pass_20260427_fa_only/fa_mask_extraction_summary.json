@@ -1,0 +1,11 @@
+{
+  "total": 741,
+  "ok": 478,
+  "skipped": 0,
+  "errors": 263,
+  "method_counts": {
+    "geometry_fallback": 10,
+    "contours_11": 426,
+    "contours_10": 42
+  }
+}

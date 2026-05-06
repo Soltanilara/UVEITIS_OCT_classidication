@@ -5,10 +5,12 @@ contain yellow zone overlays.
 
 Expected overlay geometry
 -------------------------
-- One large circle centered near the fovea
-- One smaller concentric circle
-- Two orthogonal radial axes crossing at the same center
-- One small optic-disc circle offset horizontally from the center
+- Foveal center manually identified and used as the anchor point
+- One 3.0 mm inner-radius circle and one 16.0 mm outer-radius circle
+- Pixel calibration of 53 pixels/mm, with a 3 px overlay stroke
+- Two orthogonal meridian lines centered on the fovea
+- Overlay grid rotated so the fovea-optic nerve head axis is horizontal
+- Images remain in their native orientation; only the overlay is reoriented
 
 The script infers those primitives directly from the yellow overlay and saves:
 - `zone_01.png` ... `zone_10.png`
@@ -16,17 +18,17 @@ The script infers those primitives directly from the yellow overlay and saves:
 - `qc_overlay.png` for visual inspection
 - `geometry.json` with the recovered centers, radii, and laterality
 
-Zone numbering follows the user's examples:
-- Zone 1: disc-side upper inner quadrant
-- Zone 2: opposite-side upper inner quadrant
-- Zone 3: disc-side lower inner quadrant
-- Zone 4: opposite-side lower inner quadrant
-- Zone 5: disc-side upper outer quadrant
-- Zone 6: opposite-side upper outer quadrant
-- Zone 7: opposite-side lower outer quadrant
-- Zone 8: disc-side lower outer quadrant
-- Zone 9: optic disc circle
-- Zone 10: visible retina outside zones 1-9
+Zone numbering:
+- Zone 1: upper nasal inner quadrant, <= 3 mm from fovea
+- Zone 2: upper temporal inner quadrant
+- Zone 3: lower temporal / disc-side inner quadrant
+- Zone 4: lower nasal inner quadrant
+- Zone 5: upper nasal mid-periphery, between 3 mm and 16 mm
+- Zone 6: upper temporal mid-periphery
+- Zone 7: lower temporal mid-periphery
+- Zone 8: lower nasal mid-periphery
+- Zone 9: optic disc / peripapillary region
+- Zone 10: visible retina beyond the outer 16 mm circle
 """
 
 from __future__ import annotations
@@ -51,6 +53,13 @@ except ModuleNotFoundError as exc:  # pragma: no cover - import guard for script
     ) from exc
 
 
+PIXELS_PER_MM = 53.0
+INNER_RADIUS_MM = 3.0
+OUTER_RADIUS_MM = 16.0
+OVERLAY_STROKE_WIDTH_PX = 3.0
+CALIBRATED_RADIUS_TOLERANCE_FRAC = 0.25
+
+
 @dataclass
 class Geometry:
     center_xy: tuple[float, float]
@@ -61,6 +70,9 @@ class Geometry:
     eye: str
     disc_axis_xy: tuple[float, float]
     vertical_axis_xy: tuple[float, float]
+    source: str = "unknown"
+    pixels_per_mm: float | None = None
+    overlay_stroke_width_px: float | None = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -98,6 +110,30 @@ def parse_args() -> argparse.Namespace:
         type=int,
         default=0,
         help="If > 0, stop after saving QC outputs for this many images",
+    )
+    parser.add_argument(
+        "--pixels-per-mm",
+        type=float,
+        default=PIXELS_PER_MM,
+        help="ImageJ overlay calibration. Defaults to 53 px/mm.",
+    )
+    parser.add_argument(
+        "--inner-radius-mm",
+        type=float,
+        default=INNER_RADIUS_MM,
+        help="Inner zone circle radius in mm. Defaults to 3.0.",
+    )
+    parser.add_argument(
+        "--outer-radius-mm",
+        type=float,
+        default=OUTER_RADIUS_MM,
+        help="Outer zone circle radius in mm. Defaults to 16.0.",
+    )
+    parser.add_argument(
+        "--overlay-stroke-width",
+        type=float,
+        default=OVERLAY_STROKE_WIDTH_PX,
+        help="Overlay stroke width in pixels, recorded in geometry QC output.",
     )
     return parser.parse_args()
 
@@ -168,6 +204,13 @@ def detect_yellow_overlay(rgb: np.ndarray, sat_threshold: int, val_threshold: in
     return mask
 
 
+def contour_yellow_overlay_mask(rgb: np.ndarray) -> np.ndarray:
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+    mask = cv2.inRange(hsv, np.array([20, 100, 100]), np.array([35, 255, 255]))
+    mask = cv2.dilate(mask, np.ones((3, 3), np.uint8), iterations=1)
+    return mask > 0
+
+
 def hough_circle_candidates(mask: np.ndarray) -> np.ndarray:
     mask_u8 = (mask.astype(np.uint8) * 255)
     blur = cv2.GaussianBlur(mask_u8, (9, 9), 1.5)
@@ -185,6 +228,145 @@ def hough_circle_candidates(mask: np.ndarray) -> np.ndarray:
     if circles is None:
         raise RuntimeError("Could not detect zone circles from yellow overlay.")
     return circles[0]
+
+
+def calibrated_radius_px(radius_mm: float, pixels_per_mm: float) -> float:
+    return float(radius_mm) * float(pixels_per_mm)
+
+
+def choose_calibrated_radius(detected_radius: float, calibrated_radius: float) -> float:
+    if calibrated_radius <= 0:
+        return float(detected_radius)
+    delta_frac = abs(float(detected_radius) - calibrated_radius) / calibrated_radius
+    if delta_frac <= CALIBRATED_RADIUS_TOLERANCE_FRAC:
+        return calibrated_radius
+    return float(detected_radius)
+
+
+def circle_from_contour(contour: np.ndarray) -> tuple[tuple[float, float], float]:
+    (x_center, y_center), radius = cv2.minEnclosingCircle(contour)
+    return (float(x_center), float(y_center)), float(radius)
+
+
+def normalize_vector(vector: np.ndarray) -> np.ndarray:
+    norm = float(np.linalg.norm(vector))
+    if norm < 1e-6:
+        raise RuntimeError("Cannot normalize a zero-length overlay axis.")
+    return vector.astype(np.float32) / norm
+
+
+def overlay_contours_from_mask(mask: np.ndarray, min_area: float = 500.0) -> list[np.ndarray]:
+    mask_u8 = (mask.astype(np.uint8) * 255)
+    mask_u8 = cv2.dilate(mask_u8, np.ones((3, 3), np.uint8), iterations=1)
+    contours, _ = cv2.findContours(mask_u8, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    contours = [contour for contour in contours if cv2.contourArea(contour) > min_area]
+    return sorted(contours, key=cv2.contourArea, reverse=True)
+
+
+def geometry_from_overlay_contours(
+    yellow_mask: np.ndarray,
+    *,
+    pixels_per_mm: float = PIXELS_PER_MM,
+    inner_radius_mm: float = INNER_RADIUS_MM,
+    outer_radius_mm: float = OUTER_RADIUS_MM,
+    overlay_stroke_width_px: float = OVERLAY_STROKE_WIDTH_PX,
+) -> Geometry:
+    contours = overlay_contours_from_mask(yellow_mask)
+    if len(contours) < 3:
+        raise RuntimeError(f"Contour geometry found {len(contours)} contours, expected at least 3.")
+
+    circle_records: list[dict[str, object]] = []
+    for contour in contours:
+        center_xy, radius = circle_from_contour(contour)
+        circle_records.append(
+            {
+                "contour": contour,
+                "area": float(cv2.contourArea(contour)),
+                "center_xy": center_xy,
+                "radius": radius,
+            }
+        )
+
+    outer_record = max(circle_records, key=lambda record: float(record["area"]))
+    center_xy = outer_record["center_xy"]
+    detected_outer_radius = float(outer_record["radius"])
+    cx, cy = center_xy
+
+    def center_distance(record: dict[str, object]) -> float:
+        x_record, y_record = record["center_xy"]
+        return math.hypot(float(x_record) - cx, float(y_record) - cy)
+
+    calibrated_inner_radius = calibrated_radius_px(inner_radius_mm, pixels_per_mm)
+    calibrated_outer_radius = calibrated_radius_px(outer_radius_mm, pixels_per_mm)
+    outer_radius = choose_calibrated_radius(detected_outer_radius, calibrated_outer_radius)
+
+    inner_candidates = [
+        record
+        for record in circle_records
+        if record is not outer_record
+        and center_distance(record) <= max(8.0, detected_outer_radius * 0.04)
+        and float(record["radius"]) < detected_outer_radius * 0.45
+    ]
+    if not inner_candidates:
+        raise RuntimeError("Could not isolate the fovea-centered inner circle from overlay contours.")
+
+    inner_record = min(
+        inner_candidates,
+        key=lambda record: (
+            abs(float(record["radius"]) - calibrated_inner_radius),
+            -float(record["area"]),
+        ),
+    )
+    detected_inner_radius = float(inner_record["radius"])
+    inner_radius = choose_calibrated_radius(detected_inner_radius, calibrated_inner_radius)
+
+    disc_candidates = []
+    for record in circle_records:
+        if record is outer_record or record is inner_record:
+            continue
+        radius = float(record["radius"])
+        distance = center_distance(record)
+        if radius > max(inner_radius * 0.8, outer_radius * 0.12):
+            continue
+        if radius < max(4.0, inner_radius * 0.12):
+            continue
+        if distance < inner_radius * 0.65 or distance > outer_radius * 0.65:
+            continue
+        x_record, y_record = record["center_xy"]
+        horizontal_score = abs(float(y_record) - cy)
+        expected_distance = inner_radius * 1.5
+        disc_candidates.append((horizontal_score + 0.2 * abs(distance - expected_distance), record))
+
+    if not disc_candidates:
+        raise RuntimeError("Could not isolate the optic-disc/peripapillary circle from overlay contours.")
+
+    _, disc_record = min(disc_candidates, key=lambda item: item[0])
+    disc_center_xy = disc_record["center_xy"]
+    disc_radius = float(disc_record["radius"])
+
+    disc_vec = np.array([disc_center_xy[0] - cx, disc_center_xy[1] - cy], dtype=np.float32)
+    disc_axis = normalize_vector(disc_vec)
+
+    # The ImageJ macro rotates the overlay so the fovea-ONH line is the nasal-temporal axis.
+    vertical_axis = np.array([-disc_axis[1], disc_axis[0]], dtype=np.float32)
+    if vertical_axis[1] > 0:
+        vertical_axis *= -1.0
+    vertical_axis = normalize_vector(vertical_axis)
+
+    eye = "OS" if disc_center_xy[0] < cx else "OD"
+    return Geometry(
+        center_xy=(float(cx), float(cy)),
+        inner_radius=inner_radius,
+        outer_radius=outer_radius,
+        disc_center_xy=(float(disc_center_xy[0]), float(disc_center_xy[1])),
+        disc_radius=disc_radius,
+        eye=eye,
+        disc_axis_xy=(float(disc_axis[0]), float(disc_axis[1])),
+        vertical_axis_xy=(float(vertical_axis[0]), float(vertical_axis[1])),
+        source="overlay_contours_calibrated",
+        pixels_per_mm=float(pixels_per_mm),
+        overlay_stroke_width_px=float(overlay_stroke_width_px),
+    )
 
 
 def choose_concentric_pair(circles: np.ndarray, image_shape: tuple[int, int]) -> tuple[np.ndarray, np.ndarray]:
@@ -342,9 +524,7 @@ def label_contours_for_eleven(contours: list[np.ndarray], height: int, width: in
 
 
 def contour_label_map_from_rgb(rgb: np.ndarray) -> tuple[np.ndarray, int]:
-    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
-    yellow = cv2.inRange(hsv, np.array([20, 100, 100]), np.array([35, 255, 255]))
-    yellow = cv2.dilate(yellow, np.ones((3, 3), np.uint8), iterations=1)
+    yellow = (contour_yellow_overlay_mask(rgb).astype(np.uint8) * 255)
     contours, _ = cv2.findContours(yellow, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     contours = [contour for contour in contours if cv2.contourArea(contour) > 500]
     contours = sorted(contours, key=cv2.contourArea, reverse=True)
@@ -571,7 +751,7 @@ def make_qc_overlay(rgb: np.ndarray, zone_masks: dict[int, np.ndarray], geometry
 
 
 def geometry_to_json(geometry: Geometry) -> dict[str, object]:
-    return {
+    payload = {
         "center_xy": [round(geometry.center_xy[0], 3), round(geometry.center_xy[1], 3)],
         "inner_radius": round(geometry.inner_radius, 3),
         "outer_radius": round(geometry.outer_radius, 3),
@@ -580,7 +760,13 @@ def geometry_to_json(geometry: Geometry) -> dict[str, object]:
         "eye": geometry.eye,
         "disc_axis_xy": [round(geometry.disc_axis_xy[0], 6), round(geometry.disc_axis_xy[1], 6)],
         "vertical_axis_xy": [round(geometry.vertical_axis_xy[0], 6), round(geometry.vertical_axis_xy[1], 6)],
+        "source": geometry.source,
     }
+    if geometry.pixels_per_mm is not None:
+        payload["pixels_per_mm"] = round(geometry.pixels_per_mm, 3)
+    if geometry.overlay_stroke_width_px is not None:
+        payload["overlay_stroke_width_px"] = round(geometry.overlay_stroke_width_px, 3)
+    return payload
 
 
 def process_image(
@@ -590,43 +776,62 @@ def process_image(
     retina_threshold: int,
     yellow_s_threshold: int,
     yellow_v_threshold: int,
+    pixels_per_mm: float = PIXELS_PER_MM,
+    inner_radius_mm: float = INNER_RADIUS_MM,
+    outer_radius_mm: float = OUTER_RADIUS_MM,
+    overlay_stroke_width_px: float = OVERLAY_STROKE_WIDTH_PX,
 ) -> Path:
     rgb = load_rgb(path)
     retina_mask = build_retina_mask(rgb, threshold=retina_threshold)
     yellow_mask = detect_yellow_overlay(rgb, sat_threshold=yellow_s_threshold, val_threshold=yellow_v_threshold)
+    yellow_mask |= contour_yellow_overlay_mask(rgb)
 
     try:
-        label_map, contour_count = contour_label_map_from_rgb(rgb)
-        zone_masks = zone_masks_from_label_map(label_map)
-        geometry = None
-        extraction_method = f"contours_{contour_count}"
-    except Exception as contour_exc:
-        circles = hough_circle_candidates(yellow_mask)
-        outer_circle, inner_circle = choose_concentric_pair(circles, rgb.shape[:2])
-        center_xy = ((float(outer_circle[0] + inner_circle[0]) / 2.0), (float(outer_circle[1] + inner_circle[1]) / 2.0))
-        inner_radius, outer_radius = refine_radii(
+        geometry = geometry_from_overlay_contours(
             yellow_mask,
-            center_xy=center_xy,
-            outer_radius_guess=float(outer_circle[2]),
-            inner_radius_guess=float(inner_circle[2]),
-        )
-        disc_center_xy, disc_radius = detect_disc_circle(yellow_mask, center_xy=center_xy, inner_radius=inner_radius, outer_radius=outer_radius)
-        axis_a, axis_b = detect_axes(yellow_mask, center_xy=center_xy, inner_radius=inner_radius, outer_radius=outer_radius)
-        disc_axis, vertical_axis, eye = orient_axes(disc_center_xy, center_xy, axis_a, axis_b)
-
-        geometry = Geometry(
-            center_xy=center_xy,
-            inner_radius=inner_radius,
-            outer_radius=outer_radius,
-            disc_center_xy=disc_center_xy,
-            disc_radius=disc_radius,
-            eye=eye,
-            disc_axis_xy=(float(disc_axis[0]), float(disc_axis[1])),
-            vertical_axis_xy=(float(vertical_axis[0]), float(vertical_axis[1])),
+            pixels_per_mm=pixels_per_mm,
+            inner_radius_mm=inner_radius_mm,
+            outer_radius_mm=outer_radius_mm,
+            overlay_stroke_width_px=overlay_stroke_width_px,
         )
         zone_masks = build_zone_masks(rgb.shape[:2], retina_mask, geometry)
         label_map = build_label_map(zone_masks)
-        extraction_method = f"geometry_fallback: {contour_exc}"
+        extraction_method = geometry.source
+    except Exception as contour_geometry_exc:
+        geometry_error = str(contour_geometry_exc)
+        try:
+            label_map, contour_count = contour_label_map_from_rgb(rgb)
+            zone_masks = zone_masks_from_label_map(label_map)
+            geometry = None
+            extraction_method = f"contours_{contour_count}: contour_geometry_failed={geometry_error}"
+        except Exception as contour_exc:
+            circles = hough_circle_candidates(yellow_mask)
+            outer_circle, inner_circle = choose_concentric_pair(circles, rgb.shape[:2])
+            center_xy = ((float(outer_circle[0] + inner_circle[0]) / 2.0), (float(outer_circle[1] + inner_circle[1]) / 2.0))
+            inner_radius, outer_radius = refine_radii(
+                yellow_mask,
+                center_xy=center_xy,
+                outer_radius_guess=float(outer_circle[2]),
+                inner_radius_guess=float(inner_circle[2]),
+            )
+            disc_center_xy, disc_radius = detect_disc_circle(yellow_mask, center_xy=center_xy, inner_radius=inner_radius, outer_radius=outer_radius)
+            axis_a, axis_b = detect_axes(yellow_mask, center_xy=center_xy, inner_radius=inner_radius, outer_radius=outer_radius)
+            disc_axis, vertical_axis, eye = orient_axes(disc_center_xy, center_xy, axis_a, axis_b)
+
+            geometry = Geometry(
+                center_xy=center_xy,
+                inner_radius=inner_radius,
+                outer_radius=outer_radius,
+                disc_center_xy=disc_center_xy,
+                disc_radius=disc_radius,
+                eye=eye,
+                disc_axis_xy=(float(disc_axis[0]), float(disc_axis[1])),
+                vertical_axis_xy=(float(vertical_axis[0]), float(vertical_axis[1])),
+                source=f"hough_fallback: contour_geometry_failed={geometry_error}; contour_label_failed={contour_exc}",
+            )
+            zone_masks = build_zone_masks(rgb.shape[:2], retina_mask, geometry)
+            label_map = build_label_map(zone_masks)
+            extraction_method = geometry.source
 
     qc_overlay = make_qc_overlay(rgb, zone_masks, geometry)
 
@@ -672,6 +877,10 @@ def main() -> None:
                 retina_threshold=args.min_retina_threshold,
                 yellow_s_threshold=args.yellow_s_threshold,
                 yellow_v_threshold=args.yellow_v_threshold,
+                pixels_per_mm=args.pixels_per_mm,
+                inner_radius_mm=args.inner_radius_mm,
+                outer_radius_mm=args.outer_radius_mm,
+                overlay_stroke_width_px=args.overlay_stroke_width,
             )
             summary.append({"image": str(path), "status": "ok", "output_dir": str(image_output_dir)})
             print(f"[{index}/{len(paths)}] OK  {path} -> {image_output_dir}")

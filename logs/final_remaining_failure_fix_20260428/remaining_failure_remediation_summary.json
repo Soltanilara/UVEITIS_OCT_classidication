@@ -1,0 +1,10 @@
+{
+  "total_remaining_inputs": 22,
+  "recovered_ok": 22,
+  "still_failed": 0,
+  "strategy_counts": {
+    "same_eye_transfer": 12,
+    "reextract": 9,
+    "mirrored_other_eye": 1
+  }
+}

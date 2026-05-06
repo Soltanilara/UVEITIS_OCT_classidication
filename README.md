@@ -55,6 +55,11 @@ python preprocessing/extract_fa_zone_masks.py \
   --output-dir extracted_fa_zone_masks
 ```
 
+The extractor uses the ImageJ overlay calibration by default: 53 px/mm, a
+3.0 mm inner radius, a 16.0 mm outer radius, and a 3 px overlay stroke. The
+overlay is interpreted as fovea-centered and rotated so the fovea-ONH axis is
+the nasal/temporal meridian; the underlying FA image is not rotated.
+
 Outputs are written per-image and include:
 - `zone_01.png` ... `zone_10.png`
 - `label_map.png`

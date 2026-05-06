@@ -39,6 +39,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min-retina-threshold", type=int, default=8)
     parser.add_argument("--yellow-s-threshold", type=int, default=30)
     parser.add_argument("--yellow-v-threshold", type=int, default=80)
+    parser.add_argument("--pixels-per-mm", type=float, default=53.0)
+    parser.add_argument("--inner-radius-mm", type=float, default=3.0)
+    parser.add_argument("--outer-radius-mm", type=float, default=16.0)
+    parser.add_argument("--overlay-stroke-width", type=float, default=3.0)
     return parser.parse_args()
 
 
@@ -82,6 +86,10 @@ def main() -> None:
         retina_threshold=args.min_retina_threshold,
         yellow_s_threshold=args.yellow_s_threshold,
         yellow_v_threshold=args.yellow_v_threshold,
+        pixels_per_mm=args.pixels_per_mm,
+        inner_radius_mm=args.inner_radius_mm,
+        outer_radius_mm=args.outer_radius_mm,
+        overlay_stroke_width_px=args.overlay_stroke_width,
     )
     contact_sheet_path = build_contact_sheet(image_output_dir)
 

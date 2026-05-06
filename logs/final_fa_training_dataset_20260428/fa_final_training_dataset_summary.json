@@ -1,0 +1,19 @@
+{
+  "unique_fa_paths": 741,
+  "unique_ready_masks": 740,
+  "unique_missing_masks": 1,
+  "row_count": 747,
+  "row_ready_masks": 746,
+  "row_missing_masks": 1,
+  "recovery_method_counts": {
+    "direct_extraction": 480,
+    "path_corrected:swap_0000_to_0001": 239,
+    "same_eye_transfer": 13,
+    "reextract": 9,
+    "path_corrected:extension_to_png": 2,
+    "mirrored_other_eye": 1,
+    "path_corrected:truncated_to_0001": 1,
+    "missing_source_image": 1,
+    "path_corrected:single_same_eye_fa": 1
+  }
+}

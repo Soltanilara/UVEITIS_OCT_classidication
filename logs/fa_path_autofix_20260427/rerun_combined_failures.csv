@@ -1,0 +1,4 @@
+input_path,resolved_path,status,method,save_path,contour_count,contour_error,error
+Patient057/20230809/Patient057_20230809_OS_FA_0000.png,Dataset-UVEITIS/Sample 2.5.2026/Patient057/20230809/Patient057_20230809_OS_FA_0000.png,error,,,,,Could not detect zone circles from yellow overlay.
+Patient307/20251028/Patient307_20251028_OD_FA_0001.png,Dataset-UVEITIS/Sample 2.5.2026/Patient307/20251028/Patient307_20251028_OD_FA_0001.png,error,,,,,Could not isolate the optic-disc circle.
+Patient354/20210316/Patient354_20210316_OS_FA_0001.png,Dataset-UVEITIS/Sample 2.5.2026/Patient354/20210316/Patient354_20210316_OS_FA_0001.png,error,,,,,Could not isolate the optic-disc circle.

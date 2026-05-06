@@ -1,0 +1,14 @@
+{
+  "total": 243,
+  "ok": 240,
+  "skipped": 0,
+  "errors": 3,
+  "method_counts": {
+    "contours_11": 235,
+    "geometry_fallback": 5
+  },
+  "error_counts": {
+    "Could not detect zone circles from yellow overlay.": 1,
+    "Could not isolate the optic-disc circle.": 2
+  }
+}

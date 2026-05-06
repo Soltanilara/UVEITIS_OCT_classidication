@@ -1,0 +1,29 @@
+{
+  "source_spreadsheet": "UWFAFP_Annotations_Mo_4.5.2026 (Uveitis).xlsx",
+  "corrected_csv": "logs/fa_path_autofix_20260427/annotations_fa_paths_corrected.csv",
+  "mapping_csv": "logs/fa_path_autofix_20260427/fa_path_mapping_unique.csv",
+  "unresolved_csv": "logs/fa_path_autofix_20260427/fa_path_mapping_unresolved.csv",
+  "recoverable_rows_csv": "logs/fa_path_autofix_20260427/recoverable_missing_path_rows.csv",
+  "combined_rerun_log": "logs/fa_path_autofix_20260427/rerun_combined_fa_mask_extraction.jsonl",
+  "combined_rerun_summary": "logs/fa_path_autofix_20260427/rerun_combined_fa_mask_extraction_summary.json",
+  "unique_fa_paths_reviewed": 741,
+  "resolved_paths": 740,
+  "unresolved_paths": 1,
+  "correction_counts": {
+    "exact_exists": 495,
+    "swap_0000_to_0001": 240,
+    "extension_to_png": 2,
+    "swap_0001_to_0000": 1,
+    "truncated_to_0001": 1,
+    "unresolved": 1,
+    "single_same_eye_fa": 1
+  },
+  "rerun": {
+    "target_paths": 243,
+    "completed_logged_records": 243,
+    "recovered_ok": 240,
+    "remaining_errors": 3,
+    "non_space_errors": 3,
+    "disk_space_errors": 0
+  }
+}

@@ -19,14 +19,20 @@ from preprocessing.extract_fa_zone_masks import (
     build_retina_mask,
     build_zone_masks,
     choose_concentric_pair,
+    contour_yellow_overlay_mask,
     detect_axes,
     detect_disc_circle,
     detect_yellow_overlay,
+    geometry_from_overlay_contours,
     hough_circle_candidates,
     load_rgb,
     orient_axes,
     refine_radii,
     Geometry,
+    INNER_RADIUS_MM,
+    OUTER_RADIUS_MM,
+    OVERLAY_STROKE_WIDTH_PX,
+    PIXELS_PER_MM,
 )
 
 
@@ -255,11 +261,31 @@ def create_zone_masks_from_contours(image):
     return labeled_mask, len(contours)
 
 
-def create_zone_masks_from_geometry(image_path):
+def create_zone_masks_from_geometry(
+    image_path,
+    pixels_per_mm=PIXELS_PER_MM,
+    inner_radius_mm=INNER_RADIUS_MM,
+    outer_radius_mm=OUTER_RADIUS_MM,
+    overlay_stroke_width_px=OVERLAY_STROKE_WIDTH_PX,
+):
     path = Path(image_path)
     rgb = load_rgb(path)
     retina_mask = build_retina_mask(rgb, threshold=8)
     yellow_mask = detect_yellow_overlay(rgb, sat_threshold=30, val_threshold=80)
+    yellow_mask |= contour_yellow_overlay_mask(rgb)
+
+    try:
+        geometry = geometry_from_overlay_contours(
+            yellow_mask,
+            pixels_per_mm=pixels_per_mm,
+            inner_radius_mm=inner_radius_mm,
+            outer_radius_mm=outer_radius_mm,
+            overlay_stroke_width_px=overlay_stroke_width_px,
+        )
+        zone_masks = build_zone_masks(rgb.shape[:2], retina_mask, geometry)
+        return build_label_map(zone_masks), geometry.source
+    except Exception:
+        pass
 
     circles = hough_circle_candidates(yellow_mask)
     outer_circle, inner_circle = choose_concentric_pair(circles, rgb.shape[:2])
@@ -298,21 +324,37 @@ def create_zone_masks_from_geometry(image_path):
         vertical_axis_xy=(float(vertical_axis[0]), float(vertical_axis[1])),
     )
     zone_masks = build_zone_masks(rgb.shape[:2], retina_mask, geometry)
-    return build_label_map(zone_masks)
+    return build_label_map(zone_masks), "hough_geometry_fallback"
 
 
-def create_zone_masks(image_path):
+def create_zone_masks(
+    image_path,
+    pixels_per_mm=PIXELS_PER_MM,
+    inner_radius_mm=INNER_RADIUS_MM,
+    outer_radius_mm=OUTER_RADIUS_MM,
+    overlay_stroke_width_px=OVERLAY_STROKE_WIDTH_PX,
+):
     image = load_image_rgb(image_path)
     contour_error = None
     contour_count = None
 
     try:
-        labeled_mask, contour_count = create_zone_masks_from_contours(image)
-        method = f"contours_{contour_count}"
+        labeled_mask, geometry_method = create_zone_masks_from_geometry(
+            image_path,
+            pixels_per_mm=pixels_per_mm,
+            inner_radius_mm=inner_radius_mm,
+            outer_radius_mm=outer_radius_mm,
+            overlay_stroke_width_px=overlay_stroke_width_px,
+        )
+        method = geometry_method
     except Exception as exc:
-        contour_error = str(exc)
-        labeled_mask = create_zone_masks_from_geometry(image_path)
-        method = "geometry_fallback"
+        geometry_error = str(exc)
+        try:
+            labeled_mask, contour_count = create_zone_masks_from_contours(image)
+            method = f"contours_{contour_count}"
+            contour_error = f"geometry_failed={geometry_error}"
+        except Exception as contour_exc:
+            raise RuntimeError(f"geometry_failed={geometry_error}; contour_failed={contour_exc}") from contour_exc
 
     save_path = str(Path(image_path).with_suffix("")) + "_masks.npy"
     np.save(save_path, labeled_mask)
@@ -324,7 +366,16 @@ def create_zone_masks(image_path):
     }
 
 
-def run_mask_extraction(image_dir, paths, log_path=None, summary_path=None):
+def run_mask_extraction(
+    image_dir,
+    paths,
+    log_path=None,
+    summary_path=None,
+    pixels_per_mm=PIXELS_PER_MM,
+    inner_radius_mm=INNER_RADIUS_MM,
+    outer_radius_mm=OUTER_RADIUS_MM,
+    overlay_stroke_width_px=OVERLAY_STROKE_WIDTH_PX,
+):
     ok, skip, err = 0, 0, 0
     method_counts = {}
     log_records = []
@@ -339,7 +390,13 @@ def run_mask_extraction(image_dir, paths, log_path=None, summary_path=None):
         for i, img_path in enumerate(paths):
             full_path = resolve_image_path(image_dir, img_path)
             try:
-                result = create_zone_masks(str(full_path))
+                result = create_zone_masks(
+                    str(full_path),
+                    pixels_per_mm=pixels_per_mm,
+                    inner_radius_mm=inner_radius_mm,
+                    outer_radius_mm=outer_radius_mm,
+                    overlay_stroke_width_px=overlay_stroke_width_px,
+                )
                 if result:
                     ok += 1
                     method = result["method"]
@@ -418,14 +475,32 @@ def run_mask_extraction(image_dir, paths, log_path=None, summary_path=None):
     return summary
 
 
-def create_masks_from_csv(image_dir, csv_path, log_path=None, summary_path=None): 
+def create_masks_from_csv(
+    image_dir,
+    csv_path,
+    log_path=None,
+    summary_path=None,
+    pixels_per_mm=PIXELS_PER_MM,
+    inner_radius_mm=INNER_RADIUS_MM,
+    outer_radius_mm=OUTER_RADIUS_MM,
+    overlay_stroke_width_px=OVERLAY_STROKE_WIDTH_PX,
+): 
     df = pd.read_csv(csv_path)
     
     df["Image_File(FA)"] = df["Image_File(FA)"].str.replace("\\", "/", regex=False)
     paths = df["Image_File(FA)"].dropna().unique().tolist()
     
     print(f"[count] Processing {len(paths)} unique images...")
-    return run_mask_extraction(image_dir, paths, log_path=log_path, summary_path=summary_path)
+    return run_mask_extraction(
+        image_dir,
+        paths,
+        log_path=log_path,
+        summary_path=summary_path,
+        pixels_per_mm=pixels_per_mm,
+        inner_radius_mm=inner_radius_mm,
+        outer_radius_mm=outer_radius_mm,
+        overlay_stroke_width_px=overlay_stroke_width_px,
+    )
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Precompute zone masks from a CSV of image paths")
@@ -433,6 +508,19 @@ if __name__ == "__main__":
     parser.add_argument("--csv_path", type=str, required=True, help="Path to CSV file with Image_File(FA) column")
     parser.add_argument("--log_path", type=str, default=None, help="Optional JSONL path for per-image extraction logs")
     parser.add_argument("--summary_path", type=str, default=None, help="Optional JSON path for aggregate extraction summary")
+    parser.add_argument("--pixels_per_mm", type=float, default=PIXELS_PER_MM, help="ImageJ overlay calibration in pixels/mm")
+    parser.add_argument("--inner_radius_mm", type=float, default=INNER_RADIUS_MM, help="Inner circle radius in mm")
+    parser.add_argument("--outer_radius_mm", type=float, default=OUTER_RADIUS_MM, help="Outer circle radius in mm")
+    parser.add_argument("--overlay_stroke_width_px", type=float, default=OVERLAY_STROKE_WIDTH_PX, help="Overlay stroke width in pixels")
     args = parser.parse_args()
 
-    create_masks_from_csv(args.image_dir, args.csv_path, log_path=args.log_path, summary_path=args.summary_path)
+    create_masks_from_csv(
+        args.image_dir,
+        args.csv_path,
+        log_path=args.log_path,
+        summary_path=args.summary_path,
+        pixels_per_mm=args.pixels_per_mm,
+        inner_radius_mm=args.inner_radius_mm,
+        outer_radius_mm=args.outer_radius_mm,
+        overlay_stroke_width_px=args.overlay_stroke_width_px,
+    )

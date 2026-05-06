@@ -9,7 +9,6 @@ venv/
 .vscode/
 
 # Training logs
-logs/
 *.log
 
 # Large model artifacts (ignore)

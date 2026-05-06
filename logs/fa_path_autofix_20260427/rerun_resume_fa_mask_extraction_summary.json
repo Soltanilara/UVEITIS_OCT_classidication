@@ -1,0 +1,10 @@
+{
+  "total": 58,
+  "ok": 55,
+  "skipped": 0,
+  "errors": 3,
+  "method_counts": {
+    "contours_11": 52,
+    "geometry_fallback": 3
+  }
+}

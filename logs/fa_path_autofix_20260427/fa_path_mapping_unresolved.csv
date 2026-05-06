@@ -1,0 +1,2 @@
+original_path,corrected_path,resolution_status,correction_type,resolved_exists,candidate_count,note
+Patient083/20250204/Patient083_20250204_OD_FA_0001.png,Patient083/20250204/Patient083_20250204_OD_FA_0001.png,unresolved,unresolved,False,0,"available_fa_files=['Patient083_20250204_OS_FA_0001.png', 'Patient083_20250204_OS_FA_0001_masks.npy']"
