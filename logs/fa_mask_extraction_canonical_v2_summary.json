@@ -1,0 +1,11 @@
+{
+  "total": 739,
+  "ok": 726,
+  "skipped": 0,
+  "errors": 13,
+  "method_counts": {
+    "hough_geometry_fallback": 703,
+    "contours_11": 22,
+    "contours_9": 1
+  }
+}
