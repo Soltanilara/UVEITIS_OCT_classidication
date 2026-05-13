@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-set -u
+set -euo pipefail
 
 # Canonical masked-zone sweep for FA-derived zone masks.
 #

@@ -19,7 +19,7 @@ from pathlib import Path
 import pandas as pd
 
 
-JOIN_KEY = "UWFFA"
+JOIN_KEY_CANDIDATES = ("UWFFA", "Image_File(FA)")
 ATTACH_COLUMNS = [
     "FA_Mask_Path",
     "FA_Mask_Abs_Path",
@@ -47,16 +47,43 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def build_lookup(ready_df: pd.DataFrame) -> pd.DataFrame:
-    missing = [col for col in [JOIN_KEY, *ATTACH_COLUMNS] if col not in ready_df.columns]
+def normalize_join_series(series: pd.Series) -> pd.Series:
+    return (
+        series.astype(str)
+        .str.strip()
+        .str.replace("\\", "/", regex=False)
+    )
+
+
+def pick_join_key(ready_df: pd.DataFrame, split_df: pd.DataFrame | None = None) -> str:
+    candidates = [key for key in JOIN_KEY_CANDIDATES if key in ready_df.columns]
+    if split_df is not None:
+        candidates = [key for key in candidates if key in split_df.columns]
+
+    if not candidates:
+        ready_cols = ", ".join(ready_df.columns)
+        split_cols = ", ".join(split_df.columns) if split_df is not None else ""
+        raise ValueError(
+            "Could not find a compatible join key. "
+            f"Expected one of {JOIN_KEY_CANDIDATES}. "
+            f"Ready CSV columns: [{ready_cols}]"
+            + (f" Split CSV columns: [{split_cols}]" if split_cols else "")
+        )
+
+    return candidates[0]
+
+
+def build_lookup(ready_df: pd.DataFrame, join_key: str) -> pd.DataFrame:
+    missing = [col for col in [join_key, *ATTACH_COLUMNS] if col not in ready_df.columns]
     if missing:
         raise ValueError(f"Ready CSV is missing required columns: {missing}")
 
     lookup = (
-        ready_df[[JOIN_KEY, *ATTACH_COLUMNS]]
-        .drop_duplicates(subset=[JOIN_KEY], keep="first")
+        ready_df[[join_key, *ATTACH_COLUMNS]]
+        .drop_duplicates(subset=[join_key], keep="first")
         .copy()
     )
+    lookup[join_key] = normalize_join_series(lookup[join_key])
     return lookup
 
 
@@ -82,16 +109,22 @@ def apply_mask_suffix_override(lookup: pd.DataFrame, mask_suffix: str) -> pd.Dat
 def enrich_split(
     split_csv: Path,
     lookup: pd.DataFrame,
+    join_key: str,
     drop_missing_mask: bool,
     dataset_root: Path | None,
     image_column: str,
     drop_missing_image: bool,
 ) -> pd.DataFrame:
     split_df = pd.read_csv(split_csv)
-    if JOIN_KEY not in split_df.columns:
-        raise ValueError(f"{split_csv} is missing join key column {JOIN_KEY!r}")
+    if join_key not in split_df.columns:
+        raise ValueError(f"{split_csv} is missing join key column {join_key!r}")
 
-    merged = split_df.merge(lookup, on=JOIN_KEY, how="left", validate="m:1")
+    split_df = split_df.copy()
+    overlapping_attach_cols = [col for col in ATTACH_COLUMNS if col in split_df.columns]
+    if overlapping_attach_cols:
+        split_df = split_df.drop(columns=overlapping_attach_cols)
+    split_df[join_key] = normalize_join_series(split_df[join_key])
+    merged = split_df.merge(lookup, on=join_key, how="left", validate="m:1")
     matched = merged["FA_Mask_Abs_Path"].notna()
 
     if drop_missing_mask:
@@ -111,8 +144,6 @@ def enrich_split(
 def main() -> None:
     args = parse_args()
     ready_df = pd.read_csv(args.ready_csv)
-    lookup = build_lookup(ready_df)
-    lookup = apply_mask_suffix_override(lookup, args.mask_suffix)
 
     input_root = Path(args.input_root)
     output_root = Path(args.output_root)
@@ -120,6 +151,8 @@ def main() -> None:
     dataset_root = Path(args.dataset_root) if args.dataset_root else None
 
     split_names = ("train.csv", "val.csv", "test.csv", "train_final.csv")
+    lookup = None
+    join_key = None
 
     for fold_dir in sorted(input_root.glob("fold_*")):
         if not fold_dir.is_dir():
@@ -132,9 +165,16 @@ def main() -> None:
             split_csv = fold_dir / split_name
             if not split_csv.exists():
                 continue
+            if lookup is None:
+                split_df = pd.read_csv(split_csv, nrows=1)
+                join_key = pick_join_key(ready_df, split_df)
+                lookup = build_lookup(ready_df, join_key)
+                lookup = apply_mask_suffix_override(lookup, args.mask_suffix)
+                print(f"Using join key: {join_key}")
             enriched = enrich_split(
                 split_csv,
                 lookup,
+                join_key,
                 drop_missing_mask=args.drop_missing_mask,
                 dataset_root=dataset_root,
                 image_column=args.image_column,
