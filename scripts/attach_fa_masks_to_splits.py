@@ -37,6 +37,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-root", required=True, help="Directory where enriched fold_* CSVs will be written.")
     parser.add_argument("--drop-missing-mask", action="store_true", help="Drop split rows that do not have a matched mask.")
     parser.add_argument("--dataset-root", default="", help="Optional dataset root used to verify that the image file exists.")
+    parser.add_argument(
+        "--mask-suffix",
+        default="",
+        help="Optional replacement suffix for FA mask files, e.g. _masks_v2.npy.",
+    )
     parser.add_argument("--image-column", default="Image File", help="Relative image-path column to validate under --dataset-root.")
     parser.add_argument("--drop-missing-image", action="store_true", help="Drop split rows whose image file does not exist under --dataset-root.")
     return parser.parse_args()
@@ -53,6 +58,25 @@ def build_lookup(ready_df: pd.DataFrame) -> pd.DataFrame:
         .copy()
     )
     return lookup
+
+
+def replace_mask_suffix(path_value: str, mask_suffix: str) -> str:
+    path = Path(str(path_value))
+    stem = path.stem
+    if "_masks" in stem:
+        stem = stem[:stem.rfind("_masks")]
+    return str(path.with_name(stem + mask_suffix))
+
+
+def apply_mask_suffix_override(lookup: pd.DataFrame, mask_suffix: str) -> pd.DataFrame:
+    if not mask_suffix:
+        return lookup
+
+    updated = lookup.copy()
+    updated["FA_Mask_Path"] = updated["FA_Mask_Path"].map(lambda value: replace_mask_suffix(value, mask_suffix))
+    updated["FA_Mask_Abs_Path"] = updated["FA_Mask_Abs_Path"].map(lambda value: replace_mask_suffix(value, mask_suffix))
+    updated["FA_Mask_Exists"] = updated["FA_Mask_Abs_Path"].map(lambda value: Path(str(value)).exists())
+    return updated
 
 
 def enrich_split(
@@ -88,6 +112,7 @@ def main() -> None:
     args = parse_args()
     ready_df = pd.read_csv(args.ready_csv)
     lookup = build_lookup(ready_df)
+    lookup = apply_mask_suffix_override(lookup, args.mask_suffix)
 
     input_root = Path(args.input_root)
     output_root = Path(args.output_root)
