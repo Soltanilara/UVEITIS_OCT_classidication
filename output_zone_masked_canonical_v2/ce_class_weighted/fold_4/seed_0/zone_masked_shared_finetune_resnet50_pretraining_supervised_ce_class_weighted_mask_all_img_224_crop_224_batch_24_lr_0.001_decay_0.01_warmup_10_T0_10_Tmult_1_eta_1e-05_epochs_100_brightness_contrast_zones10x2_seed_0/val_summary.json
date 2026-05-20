@@ -1,0 +1,75 @@
+{
+  "split": "val",
+  "loss": 0.6999310317792391,
+  "mean_accuracy": 0.6350877192982456,
+  "mean_binary_f1": 0.7567094851870133,
+  "mean_precision": 0.6834140907825119,
+  "mean_recall": 0.8824008424008424,
+  "mean_specificity": 0.1537062937062937,
+  "micro_f1_flat": 0.6350877192982456,
+  "macro_f1_flat": 0.47898539260665507,
+  "macro_f1_across_zones": 0.7567094851870133,
+  "observed_zone_labels": 570,
+  "rows_with_observed_zone_labels": 57,
+  "zone_thresholds": [
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5,
+    0.5
+  ],
+  "any_positive_visit_f1": 0.9444444444444444,
+  "any_positive_visit_accuracy": 0.8947368421052632,
+  "any_positive_visit_precision": 0.8947368421052632,
+  "any_positive_visit_sensitivity": 1.0,
+  "any_positive_visit_specificity": 0.0,
+  "any_positive_visit_roc_auc": 0.3839869281045752,
+  "any_positive_visit_pr_auc": 0.8971469143514299,
+  "any_positive_visit": {
+    "n_rows": 57,
+    "f1": 0.9444444444444444,
+    "accuracy": 0.8947368421052632,
+    "precision": 0.8947368421052632,
+    "sensitivity": 1.0,
+    "specificity": 0.0,
+    "roc_auc": 0.3839869281045752,
+    "pr_auc": 0.8971469143514299
+  },
+  "any_positive_visit_bootstrap_ci": {
+    "f1": {
+      "mean": 0.9447904825210571,
+      "ci_low": 0.893203854560852,
+      "ci_high": 0.9823682904243469
+    },
+    "accuracy": {
+      "mean": 0.8962807655334473,
+      "ci_low": 0.8070175647735596,
+      "ci_high": 0.9653513431549072
+    },
+    "sensitivity": {
+      "mean": 1.0,
+      "ci_low": 1.0,
+      "ci_high": 1.0
+    },
+    "specificity": {
+      "mean": 0.0,
+      "ci_low": 0.0,
+      "ci_high": 0.0
+    },
+    "roc_auc": {
+      "mean": 0.38205888867378235,
+      "ci_low": 0.22814756631851196,
+      "ci_high": 0.5476930141448975
+    },
+    "pr_auc": {
+      "mean": 0.8977129459381104,
+      "ci_low": 0.795107364654541,
+      "ci_high": 0.9712656736373901
+    }
+  }
+}
