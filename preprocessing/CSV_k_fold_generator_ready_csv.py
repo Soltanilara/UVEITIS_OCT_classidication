@@ -22,26 +22,26 @@ def _strip_sequence_token(stem: str) -> str:
     return stem
 
 
-def resolve_existing_image(dataset_root: str, rel_path: str) -> str | None:
+def resolve_existing_image(dataset_root: str, rel_path: str) -> tuple[str | None, str]:
     rel_path = normalize_relative_path(rel_path)
     candidate = Path(dataset_root) / rel_path
     if candidate.exists():
-        return rel_path
+        return rel_path, "exact_path"
 
     root = candidate.with_suffix("")
     for ext in FALLBACK_EXTS:
         for ext_variant in (ext, ext.upper()):
             alt = root.with_suffix(ext_variant)
             if alt.exists():
-                return str(alt.relative_to(dataset_root)).replace("\\", "/")
+                return str(alt.relative_to(dataset_root)).replace("\\", "/"), "extension_fallback"
 
     rel_parts = Path(rel_path).parts
     if not rel_parts:
-        return None
+        return None, "empty_path"
 
     patient_dir = Path(dataset_root) / rel_parts[0]
     if not patient_dir.is_dir():
-        return None
+        return None, "missing_patient_dir"
 
     requested_name = Path(rel_path).name.lower()
     requested_stem = Path(rel_path).stem.lower()
@@ -83,9 +83,9 @@ def resolve_existing_image(dataset_root: str, rel_path: str) -> str | None:
         if candidates:
             if len(candidates) > 1:
                 print(f"Warning: multiple {match_type} matches for {rel_path}; using {candidates[0]}")
-            return str(candidates[0].relative_to(dataset_root)).replace("\\", "/")
+            return str(candidates[0].relative_to(dataset_root)).replace("\\", "/"), match_type
 
-    return None
+    return None, "unresolved"
 
 
 def save_class_weights(prefix_path: str, df_subset: pd.DataFrame) -> None:
@@ -173,9 +173,12 @@ def main() -> None:
         if not args.dataset_root:
             raise ValueError("--drop_missing_images requires --dataset_root.")
         dataset_root = os.path.abspath(args.dataset_root)
-        resolved_paths = df["Image File"].map(lambda path: resolve_existing_image(dataset_root, path))
+        original_paths = df["Image File"].copy()
+        resolved_records = df["Image File"].map(lambda path: resolve_existing_image(dataset_root, path))
+        resolved_paths = resolved_records.map(lambda record: record[0])
+        resolve_methods = resolved_records.map(lambda record: record[1])
         corrected_count = int(
-            ((resolved_paths.notna()) & (resolved_paths != df["Image File"])).sum()
+            ((resolved_paths.notna()) & (resolved_paths != original_paths)).sum()
         )
         if corrected_count:
             print(f"Corrected {corrected_count} image paths using filesystem matches under {dataset_root}")
@@ -183,6 +186,20 @@ def main() -> None:
         missing_count = int((~image_exists).sum())
         if missing_count:
             print(f"Dropping {missing_count} rows with unresolved images under {dataset_root}")
+        audit_df = df.copy()
+        audit_df["Original Image File"] = original_paths
+        audit_df["Resolved Image File"] = resolved_paths
+        audit_df["Image Resolve Method"] = resolve_methods
+        audit_df["Image Path Changed"] = (resolved_paths.notna()) & (resolved_paths != original_paths)
+        os.makedirs(args.output_root, exist_ok=True)
+        audit_df.loc[audit_df["Image Path Changed"]].to_csv(
+            os.path.join(args.output_root, "image_path_corrections.csv"),
+            index=False,
+        )
+        audit_df.loc[~image_exists].to_csv(
+            os.path.join(args.output_root, "unresolved_image_paths.csv"),
+            index=False,
+        )
         df = df.loc[image_exists].copy()
         zone_numeric = zone_numeric.loc[image_exists].copy()
         df["Image File"] = resolved_paths.loc[image_exists].values
