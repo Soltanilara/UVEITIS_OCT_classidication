@@ -14,6 +14,7 @@ set -u
 
 DATASET_PATH=""
 PRETRAINING="retfound"
+PROTOCOL="finetune"
 GPUS_CSV="0,1"
 SLOTS_PER_GPU=1
 FOLDS_CSV="0,1,2,3,4"
@@ -39,6 +40,12 @@ RETFOUND_CLS_TOKEN=0
 RETFOUND_DINOV2_CHECKPOINT="RETFound_dinov2_meh"
 RETFOUND_DINOV2_ARCH="dinov2_vitl14"
 RETFOUND_DINOV2_INPUT_SIZE=224
+WANDB=0
+WANDB_PROJECT="uveitis-fundus-zone"
+WANDB_ENTITY=""
+WANDB_NAME=""
+WANDB_TAGS=""
+WANDB_MODE=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -48,6 +55,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --pretraining)
       PRETRAINING="$2"
+      shift 2
+      ;;
+    --protocol)
+      PROTOCOL="$2"
       shift 2
       ;;
     --gpus)
@@ -150,6 +161,30 @@ while [[ $# -gt 0 ]]; do
       RETFOUND_DINOV2_INPUT_SIZE="$2"
       shift 2
       ;;
+    --wandb)
+      WANDB=1
+      shift 1
+      ;;
+    --wandb_project)
+      WANDB_PROJECT="$2"
+      shift 2
+      ;;
+    --wandb_entity)
+      WANDB_ENTITY="$2"
+      shift 2
+      ;;
+    --wandb_name)
+      WANDB_NAME="$2"
+      shift 2
+      ;;
+    --wandb_tags)
+      WANDB_TAGS="$2"
+      shift 2
+      ;;
+    --wandb_mode)
+      WANDB_MODE="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown argument: $1"
       exit 1
@@ -167,6 +202,11 @@ if [[ "$PRETRAINING" != "retfound" && "$PRETRAINING" != "retfound_dinov2" ]]; th
   exit 1
 fi
 
+if [[ "$PROTOCOL" != "finetune" && "$PROTOCOL" != "lin_eval" ]]; then
+  echo "Error: --protocol must be finetune or lin_eval."
+  exit 1
+fi
+
 IFS=',' read -r -a GPUS <<< "$GPUS_CSV"
 IFS=',' read -r -a FOLDS <<< "$FOLDS_CSV"
 IFS=',' read -r -a SEEDS <<< "$SEEDS_CSV"
@@ -176,7 +216,7 @@ mkdir -p "$ROOT_OUTPUT_DIR" "$LOG_DIR"
 COMMON_ARGS=(
   --mode train
   --model "$PRETRAINING"
-  --protocol finetune
+  --protocol "$PROTOCOL"
   --pretraining "$PRETRAINING"
   --input_mode "$INPUT_MODE"
   --drop_missing_zone_rows all
@@ -201,6 +241,19 @@ fi
 
 if [[ -n "$RETFOUND_DINOV2_CHECKPOINT" ]]; then
   COMMON_ARGS+=(--retfound_dinov2_checkpoint "$RETFOUND_DINOV2_CHECKPOINT")
+fi
+
+if [[ "$WANDB" -eq 1 ]]; then
+  COMMON_ARGS+=(--wandb --wandb_project "$WANDB_PROJECT")
+  if [[ -n "$WANDB_ENTITY" ]]; then
+    COMMON_ARGS+=(--wandb_entity "$WANDB_ENTITY")
+  fi
+  if [[ -n "$WANDB_TAGS" ]]; then
+    COMMON_ARGS+=(--wandb_tags "$WANDB_TAGS")
+  fi
+  if [[ -n "$WANDB_MODE" ]]; then
+    COMMON_ARGS+=(--wandb_mode "$WANDB_MODE")
+  fi
 fi
 
 if [[ -n "$THRESHOLDS_JSON" ]]; then
@@ -271,12 +324,17 @@ start_job() {
   extra_args="${payload#*|}"
 
   local fold_csv="${CSV_PREFIX}_${fold}"
-  local out_dir="${ROOT_OUTPUT_DIR}/${PRETRAINING}/${exp_name}/fold_${fold}/seed_${seed}"
-  local log_file="${LOG_DIR}/${PRETRAINING}__${exp_name}__fold_${fold}__seed_${seed}__gpu_${gpu}.log"
-  local tag="${PRETRAINING} ${exp_name} fold=${fold} seed=${seed} gpu=${gpu}"
+  local out_dir="${ROOT_OUTPUT_DIR}/${PRETRAINING}/${PROTOCOL}/${exp_name}/fold_${fold}/seed_${seed}"
+  local log_file="${LOG_DIR}/${PRETRAINING}__${PROTOCOL}__${exp_name}__fold_${fold}__seed_${seed}__gpu_${gpu}.log"
+  local tag="${PRETRAINING} ${PROTOCOL} ${exp_name} fold=${fold} seed=${seed} gpu=${gpu}"
+  local job_wandb_name="${WANDB_NAME:-${PRETRAINING}_${PROTOCOL}_${exp_name}_fold_${fold}_seed_${seed}}"
 
   mkdir -p "$out_dir"
   read -r -a EXTRA_ARR <<< "$extra_args"
+  local -a JOB_WANDB_ARGS=()
+  if [[ "$WANDB" -eq 1 ]]; then
+    JOB_WANDB_ARGS+=(--wandb_name "$job_wandb_name")
+  fi
 
   echo "[START] ${tag}"
   python training/train_kFold_binary.py \
@@ -286,6 +344,7 @@ start_job() {
     --seed "$seed" \
     --gpu "$gpu" \
     "${COMMON_ARGS[@]}" \
+    "${JOB_WANDB_ARGS[@]}" \
     "${EXTRA_ARR[@]}" \
     > "$log_file" 2>&1 &
 

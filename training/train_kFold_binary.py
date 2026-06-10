@@ -148,6 +148,12 @@ parser.add_argument("--hybrid_freeze_crop_epochs", type=int, default=5)
 parser.add_argument("--swa", action="store_true")
 parser.add_argument("--swa_start_epoch", type=int, default=70)
 parser.add_argument("--visit_bootstrap_samples", type=int, default=1000)
+parser.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging.")
+parser.add_argument("--wandb_project", type=str, default="uveitis-fundus-zone")
+parser.add_argument("--wandb_entity", type=str, default="")
+parser.add_argument("--wandb_name", type=str, default="")
+parser.add_argument("--wandb_tags", type=str, default="", help="Comma-separated W&B tags.")
+parser.add_argument("--wandb_mode", type=str, default="", choices=["", "online", "offline", "disabled"])
 parser.add_argument("--gradcam", action="store_true")
 parser.add_argument("--IG", action="store_true")
 parser.add_argument("--shap", action="store_true")
@@ -229,6 +235,68 @@ os.makedirs(full_output_path, exist_ok=True)
 if args.final:
     full_metadata_path = os.path.join(args.output_path, args.metadata_path)
     print(f"Metadata loaded from {full_metadata_path}.")
+
+
+wandb_run = None
+
+
+def wandb_enabled() -> bool:
+    return bool(args.wandb)
+
+
+def flatten_for_logging(payload: dict[str, Any], prefix: str = "") -> dict[str, float | int | str | bool]:
+    flat = {}
+    for key, value in payload.items():
+        name = f"{prefix}/{key}" if prefix else str(key)
+        if isinstance(value, dict):
+            flat.update(flatten_for_logging(value, name))
+        elif isinstance(value, (str, bool, int, float)) and value is not None:
+            flat[name] = value
+        elif isinstance(value, np.generic):
+            flat[name] = value.item()
+    return flat
+
+
+def init_wandb() -> None:
+    global wandb_run
+    if not wandb_enabled():
+        return
+    try:
+        import wandb
+    except ImportError as exc:
+        raise ImportError("Weights & Biases logging was requested with --wandb, but wandb is not installed.") from exc
+
+    if args.wandb_mode:
+        os.environ["WANDB_MODE"] = args.wandb_mode
+
+    tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
+    tags.extend([args.input_mode, args.pretraining, f"fold:{os.path.basename(args.csvpath)}", f"seed:{args.seed}"])
+    run_name = args.wandb_name or folder_name
+    wandb_run = wandb.init(
+        project=args.wandb_project,
+        entity=args.wandb_entity or None,
+        name=run_name,
+        tags=tags,
+        dir=full_output_path,
+        config={k: v for k, v in vars(args).items() if k != "wandb"},
+    )
+    wandb.define_metric("epoch")
+    wandb.define_metric("train/*", step_metric="epoch")
+    wandb.define_metric("val/*", step_metric="epoch")
+    wandb.define_metric("swa/*", step_metric="epoch")
+
+
+def wandb_log(metrics: dict[str, Any], step: int | None = None) -> None:
+    if wandb_run is None:
+        return
+    if step is not None:
+        metrics = {"epoch": step, **metrics}
+    wandb_run.log(metrics)
+
+
+def finish_wandb() -> None:
+    if wandb_run is not None:
+        wandb_run.finish()
 
 
 def _validate_zone_values(zone_df: pd.DataFrame, csv_file: str) -> pd.DataFrame:
@@ -1717,6 +1785,16 @@ def train_model(model, criterion_fn, optimizer, num_epochs=args.num_epochs, ckpt
             f"Train - Loss: {train_out['loss']:.4f}, MeanAcc: {train_out['mean_acc']:.4f}, "
             f"MeanBinaryF1: {train_out['mean_f1']:.4f}, AnyPositiveF1: {train_out['any_positive']['metrics']['f1']:.4f}"
         )
+        epoch_log = {
+            "train/loss": train_out["loss"],
+            "train/mean_accuracy": train_out["mean_acc"],
+            "train/mean_binary_f1": train_out["mean_f1"],
+            "train/any_positive_f1": train_out["any_positive"]["metrics"]["f1"],
+            "train/any_positive_accuracy": train_out["any_positive"]["metrics"]["accuracy"],
+            "train/any_positive_sensitivity": train_out["any_positive"]["metrics"]["sensitivity"],
+            "train/any_positive_specificity": train_out["any_positive"]["metrics"]["specificity"],
+            "lr": optimizer.param_groups[0]["lr"],
+        }
 
         if epoch < args.warmup_epochs:
             warmup_scheduler.step()
@@ -1738,11 +1816,27 @@ def train_model(model, criterion_fn, optimizer, num_epochs=args.num_epochs, ckpt
                 f"Val   - Loss: {val_out['loss']:.4f}, MeanAcc: {val_out['mean_acc']:.4f}, "
                 f"MeanBinaryF1: {val_out['mean_f1']:.4f}, AnyPositiveF1: {val_out['any_positive']['metrics']['f1']:.4f}"
             )
+            epoch_log.update(
+                {
+                    "val/loss": val_out["loss"],
+                    "val/mean_accuracy": val_out["mean_acc"],
+                    "val/mean_binary_f1": val_out["mean_f1"],
+                    "val/any_positive_f1": val_out["any_positive"]["metrics"]["f1"],
+                    "val/any_positive_accuracy": val_out["any_positive"]["metrics"]["accuracy"],
+                    "val/any_positive_sensitivity": val_out["any_positive"]["metrics"]["sensitivity"],
+                    "val/any_positive_specificity": val_out["any_positive"]["metrics"]["specificity"],
+                }
+            )
 
             early_stopping(val_out["mean_f1"], model, epoch)
+            epoch_log["val/best_mean_binary_f1"] = early_stopping.best_metric
+            epoch_log["val/best_epoch"] = early_stopping.best_epoch
+            wandb_log(epoch_log, step=epoch)
             if args.earlystop and early_stopping.early_stop:
                 print("Early stopping")
                 break
+        else:
+            wandb_log(epoch_log, step=epoch)
 
         if (epoch + 1) % ckpt_interval == 0:
             torch.save(model.state_dict(), os.path.join(full_output_path, f"checkpoint_epoch_{epoch + 1}.pt"))
@@ -1767,6 +1861,14 @@ def train_model(model, criterion_fn, optimizer, num_epochs=args.num_epochs, ckpt
             print(
                 f"SWA   - Val MeanAcc: {swa_val_out['mean_acc']:.4f}, MeanBinaryF1: {swa_val_out['mean_f1']:.4f}, "
                 f"AnyPositiveF1: {swa_val_out['any_positive']['metrics']['f1']:.4f}"
+            )
+            wandb_log(
+                {
+                    "swa/val_mean_accuracy": swa_val_out["mean_acc"],
+                    "swa/val_mean_binary_f1": swa_val_out["mean_f1"],
+                    "swa/val_any_positive_f1": swa_val_out["any_positive"]["metrics"]["f1"],
+                },
+                step=max(len(stats["train_loss"]) - 1, 0),
             )
             if swa_val_out["mean_f1"] > early_stopping.best_metric:
                 torch.save(swa_model.state_dict(), os.path.join(full_output_path, "checkpoint.pt"))
@@ -1812,8 +1914,16 @@ def save_history_plot(history: dict):
     plt.ylabel("F1")
 
     plt.tight_layout()
-    plt.savefig(os.path.join(full_output_path, "history.png"))
+    history_path = os.path.join(full_output_path, "history.png")
+    plt.savefig(history_path)
     plt.close()
+    if wandb_run is not None:
+        try:
+            import wandb
+
+            wandb_log({"artifacts/history_plot": wandb.Image(history_path)})
+        except Exception as exc:
+            print(f"Warning: failed to log history plot to W&B: {exc}")
 
 
 def build_prediction_dataframe(eval_out: dict[str, Any], loader: DataLoader) -> pd.DataFrame:
@@ -1901,6 +2011,7 @@ def evaluate_on_split(model, loader, criterion_fn, save_path: str, split_name: s
 
     with open(os.path.join(save_path, f"{split_name}_summary.json"), "w") as f:
         json.dump(summary, f, indent=2)
+    wandb_log(flatten_for_logging(summary, prefix=f"{split_name}_eval"))
 
     y_true = eval_out["y_true"]
     y_pred = eval_out["y_pred"]
@@ -2001,6 +2112,7 @@ device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu"
 zone_thresholds = load_zone_thresholds(args.thresholds_json)
 zone_thresholds_tensor = torch.tensor(zone_thresholds, dtype=torch.float32, device=device).view(1, NUM_ZONES)
 model = build_model().to(device)
+init_wandb()
 
 zone_class_weights = None if args.unweighted else zone_class_weights_cpu.to(device)
 criterion_fn = MultiZoneCriterion(
@@ -2058,31 +2170,34 @@ def save_train_metadata(best_epoch: int | None, best_val_mean_f1: float | None):
     print(f"Saved metadata to {metadata_file}")
 
 
-if args.mode == "train":
-    if args.final:
-        best_epoch = args.num_epochs - 1
-        metadata_file = os.path.join(full_metadata_path, "train_metadata.json")
-        if os.path.exists(metadata_file):
-            with open(metadata_file, "r") as f:
-                metadata = json.load(f)
-            if metadata.get("best_epoch") is not None:
-                best_epoch = int(metadata["best_epoch"])
-                print(f"Loaded best_epoch={best_epoch} from {metadata_file}")
+try:
+    if args.mode == "train":
+        if args.final:
+            best_epoch = args.num_epochs - 1
+            metadata_file = os.path.join(full_metadata_path, "train_metadata.json")
+            if os.path.exists(metadata_file):
+                with open(metadata_file, "r") as f:
+                    metadata = json.load(f)
+                if metadata.get("best_epoch") is not None:
+                    best_epoch = int(metadata["best_epoch"])
+                    print(f"Loaded best_epoch={best_epoch} from {metadata_file}")
 
-        model, history = train_model(model, criterion_fn, optimizer, num_epochs=best_epoch + 1)
-        save_train_metadata(best_epoch=best_epoch, best_val_mean_f1=None)
-    else:
-        model, history, best_epoch, best_val_mean_f1 = train_model(model, criterion_fn, optimizer)
-        save_train_metadata(best_epoch=best_epoch, best_val_mean_f1=best_val_mean_f1)
+            model, history = train_model(model, criterion_fn, optimizer, num_epochs=best_epoch + 1)
+            save_train_metadata(best_epoch=best_epoch, best_val_mean_f1=None)
+        else:
+            model, history, best_epoch, best_val_mean_f1 = train_model(model, criterion_fn, optimizer)
+            save_train_metadata(best_epoch=best_epoch, best_val_mean_f1=best_val_mean_f1)
 
-    save_history_plot(history)
+        save_history_plot(history)
 
-    if not args.final:
-        evaluate_on_split(model, val_loader, criterion_fn, full_output_path, split_name="val")
-    evaluate_on_split(model, test_loader, criterion_fn, full_output_path, split_name="test")
+        if not args.final:
+            evaluate_on_split(model, val_loader, criterion_fn, full_output_path, split_name="val")
+        evaluate_on_split(model, test_loader, criterion_fn, full_output_path, split_name="test")
 
-elif args.mode == "eval":
-    model.load_state_dict(torch.load(os.path.join(full_output_path, args.checkpoint), map_location=device))
-    if not args.final:
-        evaluate_on_split(model, val_loader, criterion_fn, full_output_path, split_name="val")
-    evaluate_on_split(model, test_loader, criterion_fn, full_output_path, split_name="test")
+    elif args.mode == "eval":
+        model.load_state_dict(torch.load(os.path.join(full_output_path, args.checkpoint), map_location=device))
+        if not args.final:
+            evaluate_on_split(model, val_loader, criterion_fn, full_output_path, split_name="val")
+        evaluate_on_split(model, test_loader, criterion_fn, full_output_path, split_name="test")
+finally:
+    finish_wandb()
