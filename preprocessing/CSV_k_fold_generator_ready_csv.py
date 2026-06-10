@@ -1,15 +1,91 @@
 import argparse
 import os
 import random
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
+
+FALLBACK_EXTS = [".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"]
 
 
 def normalize_relative_path(path_val: str) -> str:
     path = str(path_val).replace("\\", "/").strip()
     patient_idx = path.lower().find("patient")
     return path[patient_idx:] if patient_idx >= 0 else path
+
+
+def _strip_sequence_token(stem: str) -> str:
+    parts = stem.split("_")
+    if parts and parts[-1].isdigit():
+        return "_".join(parts[:-1])
+    return stem
+
+
+def resolve_existing_image(dataset_root: str, rel_path: str) -> str | None:
+    rel_path = normalize_relative_path(rel_path)
+    candidate = Path(dataset_root) / rel_path
+    if candidate.exists():
+        return rel_path
+
+    root = candidate.with_suffix("")
+    for ext in FALLBACK_EXTS:
+        for ext_variant in (ext, ext.upper()):
+            alt = root.with_suffix(ext_variant)
+            if alt.exists():
+                return str(alt.relative_to(dataset_root)).replace("\\", "/")
+
+    rel_parts = Path(rel_path).parts
+    if not rel_parts:
+        return None
+
+    patient_dir = Path(dataset_root) / rel_parts[0]
+    if not patient_dir.is_dir():
+        return None
+
+    requested_name = Path(rel_path).name.lower()
+    requested_stem = Path(rel_path).stem.lower()
+    relaxed_stem = _strip_sequence_token(requested_stem)
+    requested_tokens = [token for token in relaxed_stem.split("_") if token]
+
+    search_roots = []
+    if len(rel_parts) > 1:
+        date_dir = patient_dir / rel_parts[1]
+        if date_dir.is_dir():
+            search_roots.append(date_dir)
+    search_roots.append(patient_dir)
+
+    matches = {"exact_name": [], "same_stem": [], "relaxed_stem": [], "tokens": []}
+    seen_roots = set()
+    for search_root in search_roots:
+        if search_root in seen_roots:
+            continue
+        seen_roots.add(search_root)
+        for walk_root, _, filenames in os.walk(search_root):
+            for fname in filenames:
+                f_path = Path(walk_root) / fname
+                if f_path.suffix.lower() not in FALLBACK_EXTS:
+                    continue
+                fname_lower = fname.lower()
+                f_stem_lower = f_path.stem.lower()
+                f_relaxed_stem = _strip_sequence_token(f_stem_lower)
+                if fname_lower == requested_name:
+                    matches["exact_name"].append(f_path)
+                elif f_stem_lower == requested_stem:
+                    matches["same_stem"].append(f_path)
+                elif f_relaxed_stem == relaxed_stem:
+                    matches["relaxed_stem"].append(f_path)
+                elif all(token in fname_lower for token in requested_tokens):
+                    matches["tokens"].append(f_path)
+
+    for match_type in ("exact_name", "same_stem", "relaxed_stem", "tokens"):
+        candidates = sorted(set(matches[match_type]))
+        if candidates:
+            if len(candidates) > 1:
+                print(f"Warning: multiple {match_type} matches for {rel_path}; using {candidates[0]}")
+            return str(candidates[0].relative_to(dataset_root)).replace("\\", "/")
+
+    return None
 
 
 def save_class_weights(prefix_path: str, df_subset: pd.DataFrame) -> None:
@@ -63,7 +139,7 @@ def main() -> None:
     parser.add_argument("--group_column", default="Patient_ID", help="Patient-level grouping column.")
     parser.add_argument("--drop_missing_zone_rows", default="all", choices=["none", "any", "all"])
     parser.add_argument("--dataset_root", default="", help="Optional dataset root used to verify Image File paths.")
-    parser.add_argument("--drop_missing_images", action="store_true", help="Drop rows whose Image File is missing under --dataset_root.")
+    parser.add_argument("--drop_missing_images", action="store_true", help="Drop rows whose Image File cannot be resolved under --dataset_root.")
     args = parser.parse_args()
 
     np.random.seed(args.seed)
@@ -97,12 +173,19 @@ def main() -> None:
         if not args.dataset_root:
             raise ValueError("--drop_missing_images requires --dataset_root.")
         dataset_root = os.path.abspath(args.dataset_root)
-        image_exists = df["Image File"].map(lambda path: os.path.exists(os.path.join(dataset_root, path)))
+        resolved_paths = df["Image File"].map(lambda path: resolve_existing_image(dataset_root, path))
+        corrected_count = int(
+            ((resolved_paths.notna()) & (resolved_paths != df["Image File"])).sum()
+        )
+        if corrected_count:
+            print(f"Corrected {corrected_count} image paths using filesystem matches under {dataset_root}")
+        image_exists = resolved_paths.notna()
         missing_count = int((~image_exists).sum())
         if missing_count:
-            print(f"Dropping {missing_count} rows with missing images under {dataset_root}")
+            print(f"Dropping {missing_count} rows with unresolved images under {dataset_root}")
         df = df.loc[image_exists].copy()
         zone_numeric = zone_numeric.loc[image_exists].copy()
+        df["Image File"] = resolved_paths.loc[image_exists].values
 
     df["AllZoneLabelsMissing"] = zone_numeric.isna().all(axis=1).astype(int)
     df["Label"] = build_label_from_zones(df, zone_cols)
