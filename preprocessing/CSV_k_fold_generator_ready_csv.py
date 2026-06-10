@@ -62,6 +62,8 @@ def main() -> None:
     parser.add_argument("--image_column", default="UWFFP", help="Column to use for fundus Image File paths.")
     parser.add_argument("--group_column", default="Patient_ID", help="Patient-level grouping column.")
     parser.add_argument("--drop_missing_zone_rows", default="all", choices=["none", "any", "all"])
+    parser.add_argument("--dataset_root", default="", help="Optional dataset root used to verify Image File paths.")
+    parser.add_argument("--drop_missing_images", action="store_true", help="Drop rows whose Image File is missing under --dataset_root.")
     args = parser.parse_args()
 
     np.random.seed(args.seed)
@@ -91,6 +93,17 @@ def main() -> None:
         df = df.copy()
 
     df["Image File"] = df[args.image_column].map(normalize_relative_path)
+    if args.drop_missing_images:
+        if not args.dataset_root:
+            raise ValueError("--drop_missing_images requires --dataset_root.")
+        dataset_root = os.path.abspath(args.dataset_root)
+        image_exists = df["Image File"].map(lambda path: os.path.exists(os.path.join(dataset_root, path)))
+        missing_count = int((~image_exists).sum())
+        if missing_count:
+            print(f"Dropping {missing_count} rows with missing images under {dataset_root}")
+        df = df.loc[image_exists].copy()
+        zone_numeric = zone_numeric.loc[image_exists].copy()
+
     df["AllZoneLabelsMissing"] = zone_numeric.isna().all(axis=1).astype(int)
     df["Label"] = build_label_from_zones(df, zone_cols)
     df["SplitGroup"] = df[args.group_column].astype(str)

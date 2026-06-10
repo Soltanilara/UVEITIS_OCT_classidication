@@ -322,6 +322,7 @@ def _validate_zone_values(zone_df: pd.DataFrame, csv_file: str) -> pd.DataFrame:
 
 
 def resolve_image_path(base_folder: str, rel_path: str) -> str:
+    rel_path = str(rel_path).replace("\\", "/")
     candidate = os.path.join(base_folder, rel_path)
     if os.path.exists(candidate):
         return candidate
@@ -348,9 +349,39 @@ def resolve_image_path(base_folder: str, rel_path: str) -> str:
             if f_stem.lower() == stem and f_ext.lower() in FALLBACK_EXTS:
                 return os.path.join(parent_dir, fname)
 
+    rel_parts = rel_path.split("/")
+    patient_dir = os.path.join(base_folder, rel_parts[0]) if rel_parts else ""
+    if patient_dir and os.path.isdir(patient_dir):
+        basename = os.path.basename(rel_path)
+        exact_name_matches = []
+        stem_matches = []
+        fuzzy_matches = []
+        tokens = [token.lower() for token in stem.split("_") if token]
+        for walk_root, _, filenames in os.walk(patient_dir):
+            for fname in filenames:
+                f_stem, f_ext = os.path.splitext(fname)
+                if f_ext.lower() not in FALLBACK_EXTS:
+                    continue
+                full_path = os.path.join(walk_root, fname)
+                fname_lower = fname.lower()
+                f_stem_lower = f_stem.lower()
+                if fname_lower == basename.lower():
+                    exact_name_matches.append(full_path)
+                elif f_stem_lower == stem:
+                    stem_matches.append(full_path)
+                elif all(token in fname_lower for token in tokens):
+                    fuzzy_matches.append(full_path)
+        for matches in (exact_name_matches, stem_matches, fuzzy_matches):
+            if matches:
+                matches = sorted(matches)
+                if len(matches) > 1:
+                    print(f"Warning: multiple fallback matches for {rel_path}; using {matches[0]}")
+                return matches[0]
+
     raise FileNotFoundError(
         "Image not found. Tried path and extension fallbacks.\n"
         f"Requested: {candidate}\n"
+        f"Patient search dir: {patient_dir if patient_dir else 'n/a'}\n"
         f"Tried: {tried[:8]}{' ...' if len(tried) > 8 else ''}"
     )
 
