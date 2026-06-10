@@ -140,6 +140,11 @@ def main() -> None:
     parser.add_argument("--drop_missing_zone_rows", default="all", choices=["none", "any", "all"])
     parser.add_argument("--dataset_root", default="", help="Optional dataset root used to verify Image File paths.")
     parser.add_argument("--drop_missing_images", action="store_true", help="Drop rows whose Image File cannot be resolved under --dataset_root.")
+    parser.add_argument(
+        "--require_image_token",
+        default="",
+        help="Optional case-insensitive token that must be present in the resolved Image File path, for example _FP_.",
+    )
     args = parser.parse_args()
 
     np.random.seed(args.seed)
@@ -203,6 +208,20 @@ def main() -> None:
         df = df.loc[image_exists].copy()
         zone_numeric = zone_numeric.loc[image_exists].copy()
         df["Image File"] = resolved_paths.loc[image_exists].values
+
+    if args.require_image_token:
+        token = args.require_image_token.lower()
+        token_mask = df["Image File"].fillna("").astype(str).str.lower().str.contains(token, regex=False)
+        rejected_count = int((~token_mask).sum())
+        if rejected_count:
+            print(f"Dropping {rejected_count} rows whose resolved Image File does not contain {args.require_image_token!r}")
+            os.makedirs(args.output_root, exist_ok=True)
+            df.loc[~token_mask].to_csv(
+                os.path.join(args.output_root, "rejected_image_token_paths.csv"),
+                index=False,
+            )
+        df = df.loc[token_mask].copy()
+        zone_numeric = zone_numeric.loc[token_mask].copy()
 
     df["AllZoneLabelsMissing"] = zone_numeric.isna().all(axis=1).astype(int)
     df["Label"] = build_label_from_zones(df, zone_cols)

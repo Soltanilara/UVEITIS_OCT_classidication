@@ -15,4 +15,5 @@ python preprocessing/CSV_k_fold_generator_ready_csv.py \
   --group_column Patient_ID \
   --drop_missing_zone_rows all \
   --dataset_root "$DATASET_ROOT" \
-  --drop_missing_images
+  --drop_missing_images \
+  --require_image_token _FP_
