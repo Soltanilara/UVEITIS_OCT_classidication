@@ -24,6 +24,7 @@ Use a Python environment with the dependencies used by scripts, including:
 - `torch`, `torchvision`, `timm`
 - `pandas`, `numpy`, `scikit-learn`, `matplotlib`, `tqdm`, `Pillow`
 - `opencv-python`, `captum`, `shap`, `pytorch-pretrained-vit`
+- `huggingface_hub` if using automatic RETFound checkpoint download
 
 ## Data Expectations
 - Split CSVs should contain at least:

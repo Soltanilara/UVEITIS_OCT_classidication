@@ -2,6 +2,7 @@ import argparse
 import json
 import os
 import random
+from functools import partial
 from typing import Any
 
 import matplotlib
@@ -81,7 +82,40 @@ parser.add_argument("--gamma", type=float, default=2.0)
 parser.add_argument("--label_smoothing", type=float, default=0.0)
 parser.add_argument("--protocol", type=str, default="finetune", choices=["finetune", "lin_eval", "scratch", "complement"])
 parser.add_argument("--model", type=str, default="resnet50")
-parser.add_argument("--pretraining", type=str, default="swav", choices=["swav", "barlowtwins", "supervised", "vit", "dino", "oct"])
+parser.add_argument(
+    "--pretraining",
+    type=str,
+    default="swav",
+    choices=["swav", "barlowtwins", "supervised", "vit", "dino", "oct", "retfound", "retfound_dinov2"],
+)
+parser.add_argument(
+    "--retfound_checkpoint",
+    type=str,
+    default="RETFound_mae_natureCFP",
+    help=(
+        "RETFound MAE checkpoint. Use a local .pth path or a Hugging Face model id such as "
+        "RETFound_mae_natureCFP from YukunZhou/<id>."
+    ),
+)
+parser.add_argument("--retfound_input_size", type=int, default=224, help="Square input size for RETFound MAE.")
+parser.add_argument("--retfound_cls_token", action="store_true", help="Use RETFound class-token pooling instead of global pooling.")
+parser.add_argument(
+    "--retfound_dinov2_checkpoint",
+    type=str,
+    default="RETFound_dinov2_meh",
+    help=(
+        "RETFound-DINOv2 checkpoint. Use a local .pth path or a Hugging Face model id such as "
+        "RETFound_dinov2_meh from YukunZhou/<id>."
+    ),
+)
+parser.add_argument(
+    "--retfound_dinov2_arch",
+    type=str,
+    default="dinov2_vitl14",
+    choices=["dinov2_vits14", "dinov2_vitb14", "dinov2_vitl14", "dinov2_vitg14"],
+    help="DINOv2 architecture to instantiate before loading RETFound-DINOv2 weights.",
+)
+parser.add_argument("--retfound_dinov2_input_size", type=int, default=224, help="Square input size for RETFound-DINOv2.")
 parser.add_argument("--beta", type=float, default=0.0)
 parser.add_argument("--seed", type=int, default=0)
 parser.add_argument("--csvpath", type=str, default="fold_0")
@@ -393,10 +427,18 @@ def load_data(csv_file: str, csvpath: str, folder: str):
 
 
 def model_uses_half_stats() -> bool:
-    return args.model in {"B_16_imagenet1k", "L_16_imagenet1k", "vitb14_dino"} or args.protocol == "scratch"
+    return (
+        args.model in {"B_16_imagenet1k", "L_16_imagenet1k", "vitb14_dino"}
+        or args.pretraining in {"retfound", "retfound_dinov2"}
+        or args.protocol == "scratch"
+    )
 
 
 def full_image_resize() -> tuple[int, int]:
+    if args.pretraining == "retfound":
+        return (args.retfound_input_size, args.retfound_input_size)
+    if args.pretraining == "retfound_dinov2":
+        return (args.retfound_dinov2_input_size, args.retfound_dinov2_input_size)
     if args.model in {"B_16_imagenet1k", "L_16_imagenet1k"}:
         return (384, 384)
     if args.model == "vitb14_dino":
@@ -405,6 +447,10 @@ def full_image_resize() -> tuple[int, int]:
 
 
 def crop_resize() -> tuple[int, int]:
+    if args.pretraining == "retfound":
+        return (args.retfound_input_size, args.retfound_input_size)
+    if args.pretraining == "retfound_dinov2":
+        return (args.retfound_dinov2_input_size, args.retfound_dinov2_input_size)
     return (args.zone_crop_size, args.zone_crop_size)
 
 
@@ -734,6 +780,172 @@ class R50Complement(nn.Module):
         return out, out1, out2
 
 
+class RETFoundMAEBackbone(nn.Module):
+    def __init__(self, img_size: int, global_pool: bool = True):
+        super().__init__()
+        try:
+            from timm.models.vision_transformer import VisionTransformer
+        except ImportError as exc:
+            raise ImportError("RETFound MAE requires timm. Install timm in this environment first.") from exc
+
+        self.global_pool = global_pool
+        self.model = VisionTransformer(
+            img_size=img_size,
+            patch_size=16,
+            embed_dim=1024,
+            depth=24,
+            num_heads=16,
+            mlp_ratio=4,
+            qkv_bias=True,
+            norm_layer=partial(nn.LayerNorm, eps=1e-6),
+            num_classes=0,
+        )
+        if self.global_pool:
+            self.model.fc_norm = nn.LayerNorm(self.model.embed_dim, eps=1e-6)
+            self.model.norm = nn.Identity()
+        self.num_features = self.model.embed_dim
+
+    def forward_features(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.model.patch_embed(x)
+        cls_token = self.model.cls_token.expand(x.shape[0], -1, -1)
+        x = torch.cat((cls_token, x), dim=1)
+        x = self.model.pos_drop(x + self.model.pos_embed)
+        x = self.model.blocks(x)
+        if self.global_pool:
+            return self.model.fc_norm(x[:, 1:, :].mean(dim=1))
+        return self.model.norm(x)[:, 0]
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.forward_features(x)
+
+
+def resolve_hf_or_local_checkpoint(checkpoint: str, default_owner: str = "YukunZhou") -> str:
+    if os.path.exists(checkpoint):
+        return checkpoint
+    if checkpoint.endswith((".pth", ".pt", ".bin")) and os.path.exists(os.path.expanduser(checkpoint)):
+        return os.path.expanduser(checkpoint)
+
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError as exc:
+        raise FileNotFoundError(
+            f"Checkpoint '{checkpoint}' was not found locally, and huggingface_hub is not installed for download."
+        ) from exc
+
+    repo_id = checkpoint if "/" in checkpoint else f"{default_owner}/{checkpoint}"
+    filename = os.path.basename(checkpoint)
+    if not filename.endswith((".pth", ".pt", ".bin")):
+        filename = f"{filename}.pth"
+    return hf_hub_download(repo_id=repo_id, filename=filename)
+
+
+def interpolate_pos_embed(model: nn.Module, checkpoint_model: dict[str, torch.Tensor]) -> None:
+    if "pos_embed" not in checkpoint_model or not hasattr(model, "pos_embed"):
+        return
+
+    pos_embed_checkpoint = checkpoint_model["pos_embed"]
+    embedding_size = pos_embed_checkpoint.shape[-1]
+    num_patches = model.patch_embed.num_patches
+    num_extra_tokens = model.pos_embed.shape[-2] - num_patches
+    old_token_count = pos_embed_checkpoint.shape[-2] - num_extra_tokens
+    old_size = int(old_token_count ** 0.5)
+    new_size = int(num_patches ** 0.5)
+
+    if old_size == new_size:
+        return
+
+    extra_tokens = pos_embed_checkpoint[:, :num_extra_tokens]
+    pos_tokens = pos_embed_checkpoint[:, num_extra_tokens:]
+    pos_tokens = pos_tokens.reshape(-1, old_size, old_size, embedding_size).permute(0, 3, 1, 2)
+    pos_tokens = F.interpolate(pos_tokens, size=(new_size, new_size), mode="bicubic", align_corners=False)
+    pos_tokens = pos_tokens.permute(0, 2, 3, 1).flatten(1, 2)
+    checkpoint_model["pos_embed"] = torch.cat((extra_tokens, pos_tokens), dim=1)
+
+
+def clean_retfound_state_dict(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    cleaned = {}
+    for key, value in state_dict.items():
+        clean_key = key
+        prefix_removed = True
+        while prefix_removed:
+            prefix_removed = False
+            for prefix in ("module.", "model.", "teacher.", "student.", "backbone."):
+                if clean_key.startswith(prefix):
+                    clean_key = clean_key[len(prefix):]
+                    prefix_removed = True
+                    break
+        for prefix in ("encoder.", "network."):
+            if clean_key.startswith(prefix):
+                clean_key = clean_key[len(prefix):]
+        clean_key = clean_key.replace("mlp.w12.", "mlp.fc1.")
+        clean_key = clean_key.replace("mlp.w3.", "mlp.fc2.")
+        if clean_key.startswith(("head.", "head_dist.")):
+            continue
+        cleaned[clean_key] = value
+    return cleaned
+
+
+def load_retfound_mae_backbone() -> nn.Module:
+    backbone = RETFoundMAEBackbone(
+        img_size=args.retfound_input_size,
+        global_pool=not args.retfound_cls_token,
+    )
+    ckpt_path = resolve_hf_or_local_checkpoint(args.retfound_checkpoint)
+    checkpoint_obj = torch.load(ckpt_path, map_location="cpu")
+    checkpoint_model = clean_retfound_state_dict(unwrap_state_dict(checkpoint_obj))
+    interpolate_pos_embed(backbone.model, checkpoint_model)
+    missing, unexpected = backbone.model.load_state_dict(checkpoint_model, strict=False)
+    print(
+        f"Loaded RETFound MAE checkpoint from {ckpt_path}. "
+        f"Missing keys: {len(missing)}, unexpected keys: {len(unexpected)}."
+    )
+    return backbone
+
+
+def load_retfound_dinov2_backbone() -> nn.Module:
+    try:
+        import timm
+    except ImportError as exc:
+        raise ImportError("RETFound-DINOv2 requires timm. Install timm in this environment first.") from exc
+
+    arch_map = {
+        "dinov2_vits14": "vit_small_patch14_dinov2.lvd142m",
+        "dinov2_vitb14": "vit_base_patch14_dinov2.lvd142m",
+        "dinov2_vitl14": "vit_large_patch14_dinov2.lvd142m",
+        "dinov2_vitg14": "vit_giant_patch14_dinov2.lvd142m",
+    }
+    backbone = timm.create_model(
+        arch_map[args.retfound_dinov2_arch],
+        pretrained=True,
+        img_size=args.retfound_dinov2_input_size,
+        num_classes=0,
+    )
+
+    ckpt_path = resolve_hf_or_local_checkpoint(args.retfound_dinov2_checkpoint)
+    checkpoint_obj = torch.load(ckpt_path, map_location="cpu")
+    if isinstance(checkpoint_obj, dict) and isinstance(checkpoint_obj.get("teacher"), dict):
+        raw_state = checkpoint_obj["teacher"]
+    else:
+        raw_state = unwrap_state_dict(checkpoint_obj)
+
+    checkpoint_model = clean_retfound_state_dict(raw_state)
+    interpolate_pos_embed(backbone, checkpoint_model)
+    module_state = backbone.state_dict()
+    matched = {
+        key: value
+        for key, value in checkpoint_model.items()
+        if key in module_state and module_state[key].shape == value.shape
+    }
+    if not matched:
+        raise ValueError(f"No matching tensors found in RETFound-DINOv2 checkpoint: {ckpt_path}")
+    missing, unexpected = backbone.load_state_dict(matched, strict=False)
+    print(
+        f"Loaded {len(matched)} RETFound-DINOv2 tensors from {ckpt_path}. "
+        f"Missing keys: {len(missing)}, unexpected keys: {len(unexpected)}."
+    )
+    return backbone
+
+
 def load_supervised_backbone(model_name: str, pretrained: bool) -> nn.Module:
     if model_name == "resnet18":
         return models.resnet18(pretrained=pretrained)
@@ -759,6 +971,11 @@ def strip_model_head(model: nn.Module) -> tuple[nn.Module, int]:
         model.linear_head = nn.Identity()
         return model, in_features
 
+    if hasattr(model, "head") and isinstance(model.head, nn.Linear):
+        in_features = model.head.in_features
+        model.head = nn.Identity()
+        return model, in_features
+
     if hasattr(model, "classifier"):
         classifier = model.classifier
         if isinstance(classifier, nn.Linear):
@@ -773,6 +990,10 @@ def strip_model_head(model: nn.Module) -> tuple[nn.Module, int]:
                     layers[idx] = nn.Identity()
                     model.classifier = nn.Sequential(*layers)
                     return model, in_features
+
+    if hasattr(model, "num_features"):
+        in_features = int(model.num_features)
+        return model, in_features
 
     raise ValueError(f"Could not strip output head for model type: {type(model)}")
 
@@ -885,6 +1106,14 @@ def build_raw_backbone() -> nn.Module:
         if ViT is None:
             raise ImportError("pytorch_pretrained_vit is required for --pretraining vit")
         return ViT(args.model, pretrained=True)
+
+    if args.pretraining == "retfound":
+        if args.model not in {"retfound_mae", "vit_large_patch16", "L_16_imagenet1k"}:
+            print(f"Warning: --pretraining retfound ignores --model {args.model!r} and uses RETFound MAE ViT-L/16.")
+        return load_retfound_mae_backbone()
+
+    if args.pretraining == "retfound_dinov2":
+        return load_retfound_dinov2_backbone()
 
     raise ValueError(f"Unsupported pretraining option: {args.pretraining}")
 
@@ -1810,6 +2039,12 @@ def save_train_metadata(best_epoch: int | None, best_val_mean_f1: float | None):
         "image_resolver": args.image_resolver,
         "apply_mask": bool(args.apply_mask),
         "fundus_pretrained_ckpt": args.fundus_pretrained_ckpt,
+        "retfound_checkpoint": args.retfound_checkpoint if args.pretraining == "retfound" else "",
+        "retfound_input_size": int(args.retfound_input_size),
+        "retfound_cls_token": bool(args.retfound_cls_token),
+        "retfound_dinov2_checkpoint": args.retfound_dinov2_checkpoint if args.pretraining == "retfound_dinov2" else "",
+        "retfound_dinov2_arch": args.retfound_dinov2_arch if args.pretraining == "retfound_dinov2" else "",
+        "retfound_dinov2_input_size": int(args.retfound_dinov2_input_size),
         "zone_template_json": args.zone_template_json if zone_template is not None else "",
         "swa_enabled": bool(args.swa),
         "hybrid_freeze_crop_epochs": int(args.hybrid_freeze_crop_epochs),
