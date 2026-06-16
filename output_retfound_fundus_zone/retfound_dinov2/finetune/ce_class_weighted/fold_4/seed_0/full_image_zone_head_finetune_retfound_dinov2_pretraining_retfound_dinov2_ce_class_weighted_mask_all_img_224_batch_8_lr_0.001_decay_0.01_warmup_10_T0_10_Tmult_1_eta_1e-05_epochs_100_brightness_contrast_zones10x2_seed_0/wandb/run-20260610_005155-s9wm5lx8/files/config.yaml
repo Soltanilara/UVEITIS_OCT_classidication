@@ -1,0 +1,280 @@
+_wandb:
+    value:
+        cli_version: 0.27.2
+        e:
+            7n6saj4x9emffeiqk3j2a816o28vgkwq:
+                args:
+                    - --csvpath
+                    - fold_final_ready_fundus_only/fold_4
+                    - --dataset_path
+                    - /mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical
+                    - --output_path
+                    - output_retfound_fundus_zone/retfound_dinov2/finetune/ce_class_weighted/fold_4/seed_0
+                    - --seed
+                    - "0"
+                    - --gpu
+                    - "0"
+                    - --mode
+                    - train
+                    - --model
+                    - retfound_dinov2
+                    - --protocol
+                    - finetune
+                    - --pretraining
+                    - retfound_dinov2
+                    - --input_mode
+                    - full_image_zone_head
+                    - --drop_missing_zone_rows
+                    - all
+                    - --image_size
+                    - "224"
+                    - --zone_crop_size
+                    - "224"
+                    - --batch_size
+                    - "8"
+                    - --num_epochs
+                    - "100"
+                    - --earlystop
+                    - --brightness
+                    - --contrast
+                    - --image_column
+                    - Image File
+                    - --image_resolver
+                    - direct
+                    - --retfound_checkpoint
+                    - RETFound_mae_natureCFP
+                    - --retfound_input_size
+                    - "224"
+                    - --retfound_dinov2_arch
+                    - dinov2_vitl14
+                    - --retfound_dinov2_input_size
+                    - "224"
+                    - --retfound_dinov2_checkpoint
+                    - RETFound_dinov2_meh
+                    - --wandb
+                    - --wandb_project
+                    - uveitis-fundus-zone
+                    - --wandb_tags
+                    - retfound_dinov2,fundus_only,final_ready,finetune
+                    - --wandb_name
+                    - retfound_dinov2_finetune_ce_class_weighted_fold_4_seed_0
+                    - --loss
+                    - CE
+                codePath: training/train_kFold_binary.py
+                codePathLocal: training/train_kFold_binary.py
+                cpu_count: 24
+                cpu_count_logical: 48
+                cudaVersion: "13.1"
+                disk:
+                    /:
+                        total: "3766564446208"
+                        used: "3301415321600"
+                email: smmahesh@ucdavis.edu
+                executable: /home/shashank/miniconda3/envs/retfound/bin/python
+                git:
+                    commit: 82d043eea3f69bba5b8de0b6c59e6261d27bd4d8
+                    remote: git@github.com:Soltanilara/UVEITIS_OCT_classidication.git
+                gpu: NVIDIA A100 80GB PCIe
+                gpu_count: 2
+                gpu_nvidia:
+                    - architecture: Ampere
+                      cudaCores: 6912
+                      memoryTotal: "85899345920"
+                      name: NVIDIA A100 80GB PCIe
+                      uuid: GPU-e3532e5f-af41-f1ff-134b-77fb25166a18
+                    - architecture: Ampere
+                      cudaCores: 6912
+                      memoryTotal: "85899345920"
+                      name: NVIDIA A100 80GB PCIe
+                      uuid: GPU-591c4458-f018-49a9-14e4-4f2addc33cc7
+                host: lara94
+                memory:
+                    total: "540624781312"
+                os: Linux-5.15.0-171-generic-x86_64-with-glibc2.35
+                program: /home/shashank/UVEITIS_OCT_classidication/training/train_kFold_binary.py
+                python: CPython 3.11.0
+                root: output_retfound_fundus_zone/retfound_dinov2/finetune/ce_class_weighted/fold_4/seed_0/full_image_zone_head_finetune_retfound_dinov2_pretraining_retfound_dinov2_ce_class_weighted_mask_all_img_224_batch_8_lr_0.001_decay_0.01_warmup_10_T0_10_Tmult_1_eta_1e-05_epochs_100_brightness_contrast_zones10x2_seed_0
+                startedAt: "2026-06-10T07:51:55.560433Z"
+                writerId: 7n6saj4x9emffeiqk3j2a816o28vgkwq
+        m:
+            - "1": epoch
+              "6":
+                - 3
+              "7": []
+            - "2": val/*
+              "5": 1
+              "6":
+                - 1
+              "7": []
+            - "2": swa/*
+              "5": 1
+              "6":
+                - 1
+              "7": []
+            - "2": train/*
+              "5": 1
+              "6":
+                - 1
+              "7": []
+        python_version: 3.11.0
+        t:
+            "1":
+                - 1
+                - 5
+                - 41
+                - 49
+                - 53
+                - 63
+            "2":
+                - 1
+                - 5
+                - 41
+                - 49
+                - 53
+                - 63
+            "3":
+                - 2
+                - 7
+                - 13
+                - 15
+                - 16
+            "4": 3.11.0
+            "5": 0.27.2
+            "12": 0.27.2
+            "13": linux-x86_64
+IG:
+    value: false
+T_0:
+    value: 10
+T_multi:
+    value: 1
+apply_mask:
+    value: false
+batch_size:
+    value: 8
+beta:
+    value: 0
+brightness:
+    value: true
+checkpoint:
+    value: checkpoint.pt
+ckpt_interval:
+    value: 100
+contrast:
+    value: true
+csvpath:
+    value: fold_final_ready_fundus_only/fold_4
+dataset_path:
+    value: /mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical
+decay:
+    value: 0.01
+drop_missing_zone_rows:
+    value: all
+earlystop:
+    value: true
+elastic:
+    value: false
+eta_min:
+    value: 1e-05
+final:
+    value: false
+fundus_pretrained_ckpt:
+    value: ""
+gamma:
+    value: 2
+gnoise:
+    value: false
+gpu:
+    value: 0
+gradcam:
+    value: false
+hflip:
+    value: false
+hybrid_freeze_crop_epochs:
+    value: 5
+image_absolute_column:
+    value: ""
+image_column:
+    value: Image File
+image_resolver:
+    value: direct
+image_size:
+    value: 224
+input_mode:
+    value: full_image_zone_head
+label_smoothing:
+    value: 0
+loss:
+    value: CE
+lr:
+    value: 0.001
+mask_absolute_column:
+    value: ""
+mask_column:
+    value: ""
+metadata_path:
+    value: metadata_0
+mixup:
+    value: false
+mixup_alpha:
+    value: 1
+mixup_beta:
+    value: 1
+mode:
+    value: train
+model:
+    value: retfound_dinov2
+num_epochs:
+    value: 100
+output_path:
+    value: output_retfound_fundus_zone/retfound_dinov2/finetune/ce_class_weighted/fold_4/seed_0
+patience:
+    value: 10
+pretraining:
+    value: retfound_dinov2
+protocol:
+    value: finetune
+retfound_checkpoint:
+    value: RETFound_mae_natureCFP
+retfound_cls_token:
+    value: false
+retfound_dinov2_arch:
+    value: dinov2_vitl14
+retfound_dinov2_checkpoint:
+    value: RETFound_dinov2_meh
+retfound_dinov2_input_size:
+    value: 224
+retfound_input_size:
+    value: 224
+seed:
+    value: 0
+shap:
+    value: false
+swa:
+    value: false
+swa_start_epoch:
+    value: 70
+thresholds_json:
+    value: ""
+unweighted:
+    value: false
+visit_bootstrap_samples:
+    value: 1000
+wandb_entity:
+    value: ""
+wandb_mode:
+    value: ""
+wandb_name:
+    value: retfound_dinov2_finetune_ce_class_weighted_fold_4_seed_0
+wandb_project:
+    value: uveitis-fundus-zone
+wandb_tags:
+    value: retfound_dinov2,fundus_only,final_ready,finetune
+warmup_epochs:
+    value: 10
+weightedSampling:
+    value: false
+zone_crop_size:
+    value: 224
+zone_template_json:
+    value: configs/fundus_10zone_template.json
