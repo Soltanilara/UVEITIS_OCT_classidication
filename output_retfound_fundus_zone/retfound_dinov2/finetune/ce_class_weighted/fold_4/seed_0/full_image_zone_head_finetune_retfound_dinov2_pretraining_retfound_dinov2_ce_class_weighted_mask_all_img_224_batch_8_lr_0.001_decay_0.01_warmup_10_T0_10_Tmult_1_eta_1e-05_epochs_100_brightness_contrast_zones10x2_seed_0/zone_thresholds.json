@@ -1,0 +1,57 @@
+{
+  "source_predictions_csv": "output_retfound_fundus_zone/retfound_dinov2/finetune/ce_class_weighted/fold_4/seed_0/full_image_zone_head_finetune_retfound_dinov2_pretraining_retfound_dinov2_ce_class_weighted_mask_all_img_224_batch_8_lr_0.001_decay_0.01_warmup_10_T0_10_Tmult_1_eta_1e-05_epochs_100_brightness_contrast_zones10x2_seed_0/val_predictions.csv",
+  "search_grid": [
+    0.3,
+    0.32,
+    0.34,
+    0.36,
+    0.38,
+    0.4,
+    0.42,
+    0.44,
+    0.46,
+    0.48,
+    0.5,
+    0.52,
+    0.54,
+    0.56,
+    0.58,
+    0.6,
+    0.62,
+    0.64,
+    0.66,
+    0.68,
+    0.7,
+    0.72,
+    0.74,
+    0.76,
+    0.78,
+    0.8,
+    0.82,
+    0.84,
+    0.86,
+    0.88,
+    0.9
+  ],
+  "thresholds": {
+    "Zone1": 0.4000000059604645,
+    "Zone2": 0.5,
+    "Zone3": 0.46000000834465027,
+    "Zone4": 0.4000000059604645,
+    "Zone5": 0.3199999928474426,
+    "Zone6": 0.3799999952316284,
+    "Zone7": 0.5,
+    "Zone8": 0.4000000059604645,
+    "Zone9": 0.4000000059604645,
+    "Zone10": 0.5
+  },
+  "baseline": {
+    "mean_binary_f1": 0.5756458948230786,
+    "any_positive_visit_f1": 0.8266666666666667
+  },
+  "tuned": {
+    "mean_binary_f1": 0.6561160738167839,
+    "any_positive_visit_f1": 0.8266666666666667
+  },
+  "kept_only_if_improves_both": false
+}
