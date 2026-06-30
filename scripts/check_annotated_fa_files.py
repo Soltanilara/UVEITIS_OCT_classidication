@@ -108,9 +108,30 @@ def mask_candidates_for(image_path: Path) -> list[Path]:
     ]
 
 
-def fallback_candidates_for(image_path: Path) -> list[tuple[str, Path]]:
+def fallback_candidates_for(
+    image_path: Path,
+    dataset_root: Path | None = None,
+    patient_expected: str = "",
+    date_expected: str = "",
+    eye_expected: str = "",
+) -> list[tuple[str, Path]]:
     filename = image_path.name
     candidates: list[tuple[str, Path]] = []
+
+    if dataset_root and patient_expected and date_expected and eye_expected:
+        expected_dir = dataset_root / patient_expected / date_expected
+        candidates.extend(
+            [
+                (
+                    "expected_columns_fa_0001",
+                    expected_dir / f"{patient_expected}_{date_expected}_{eye_expected}_FA_0001.png",
+                ),
+                (
+                    "expected_columns_fa_0000",
+                    expected_dir / f"{patient_expected}_{date_expected}_{eye_expected}_FA_0000.png",
+                ),
+            ]
+        )
 
     replacements = [
         ("fa_0000_to_0001", "_FA_0000", "_FA_0001"),
@@ -136,8 +157,20 @@ def fallback_candidates_for(image_path: Path) -> list[tuple[str, Path]]:
     return [(reason, path) for reason, path in candidates if path != image_path]
 
 
-def first_existing_fallback(image_path: Path) -> tuple[str, Path] | tuple[str, None]:
-    for reason, candidate in fallback_candidates_for(image_path):
+def first_existing_fallback(
+    image_path: Path,
+    dataset_root: Path | None = None,
+    patient_expected: str = "",
+    date_expected: str = "",
+    eye_expected: str = "",
+) -> tuple[str, Path] | tuple[str, None]:
+    for reason, candidate in fallback_candidates_for(
+        image_path,
+        dataset_root=dataset_root,
+        patient_expected=patient_expected,
+        date_expected=date_expected,
+        eye_expected=eye_expected,
+    ):
         if candidate.is_file():
             return reason, candidate
     return "", None
@@ -184,8 +217,14 @@ def main() -> int:
         file_exists = image_path.is_file()
         fallback_reason = ""
         fallback_path: Path | None = None
-        if not file_exists and not args.no_fallbacks:
-            fallback_reason, fallback_path = first_existing_fallback(image_path)
+        if (not file_exists or not filename_matches_columns) and not args.no_fallbacks:
+            fallback_reason, fallback_path = first_existing_fallback(
+                image_path,
+                dataset_root=dataset_root,
+                patient_expected=patient_expected,
+                date_expected=date_expected,
+                eye_expected=eye_expected,
+            )
         recoverable = fallback_path is not None
 
         mask_source_path = fallback_path if fallback_path is not None else image_path
