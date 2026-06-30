@@ -44,6 +44,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Also check for a sibling *_masks.npy or *_masks_v2.npy file for each image",
     )
+    parser.add_argument(
+        "--no-fallbacks",
+        action="store_true",
+        help="Disable checks for likely corrected image paths when the annotated path is missing",
+    )
     return parser.parse_args()
 
 
@@ -103,6 +108,41 @@ def mask_candidates_for(image_path: Path) -> list[Path]:
     ]
 
 
+def fallback_candidates_for(image_path: Path) -> list[tuple[str, Path]]:
+    filename = image_path.name
+    candidates: list[tuple[str, Path]] = []
+
+    replacements = [
+        ("fa_0000_to_0001", "_FA_0000", "_FA_0001"),
+        ("fa_0001_to_0000", "_FA_0001", "_FA_0000"),
+        ("jpg_to_png", ".jpg", ".png"),
+        ("jpeg_to_png", ".jpeg", ".png"),
+        ("fa_eye_order_to_eye_fa", "_FA_OD_", "_OD_FA_"),
+        ("fa_eye_order_to_eye_fa", "_FA_OS_", "_OS_FA_"),
+    ]
+    for reason, old, new in replacements:
+        if old in filename:
+            candidates.append((reason, image_path.with_name(filename.replace(old, new, 1))))
+
+    # If the annotated path has a typo in the frame number, prefer an existing
+    # sibling FA image for the same patient/date/eye over declaring it absent.
+    match = re.match(r"(.+_(OD|OS)_FA_)\d+(\.[^.]+)$", filename)
+    if match and image_path.parent.exists():
+        prefix, _, suffix = match.groups()
+        for sibling in sorted(image_path.parent.glob(f"{prefix}*{suffix}")):
+            if sibling != image_path:
+                candidates.append(("same_eye_fa_sibling", sibling))
+
+    return [(reason, path) for reason, path in candidates if path != image_path]
+
+
+def first_existing_fallback(image_path: Path) -> tuple[str, Path] | tuple[str, None]:
+    for reason, candidate in fallback_candidates_for(image_path):
+        if candidate.is_file():
+            return reason, candidate
+    return "", None
+
+
 def main() -> int:
     args = parse_args()
     annotations = Path(args.annotations).expanduser().resolve()
@@ -142,8 +182,14 @@ def main() -> int:
         filename_matches_columns = bool(filename) and filename.startswith(filename_expected_prefix)
         location_matches_columns = patient_in_path == patient_expected and date_in_path == date_expected
         file_exists = image_path.is_file()
+        fallback_reason = ""
+        fallback_path: Path | None = None
+        if not file_exists and not args.no_fallbacks:
+            fallback_reason, fallback_path = first_existing_fallback(image_path)
+        recoverable = fallback_path is not None
 
-        mask_candidates = mask_candidates_for(image_path)
+        mask_source_path = fallback_path if fallback_path is not None else image_path
+        mask_candidates = mask_candidates_for(mask_source_path)
         existing_masks = [str(path) for path in mask_candidates if path.is_file()]
 
         status = "ok"
@@ -154,11 +200,14 @@ def main() -> int:
             issues.append("patient_or_date_location_mismatch")
         if not filename_matches_columns:
             issues.append("filename_mismatch_with_columns")
-        if not file_exists:
+        if recoverable:
+            issues.append(f"recoverable_{fallback_reason}")
+            status = "recoverable"
+        elif not file_exists:
             issues.append("missing_image_file")
         if args.check_masks and not existing_masks:
             issues.append("missing_mask_file")
-        if issues:
+        if issues and status != "recoverable":
             status = "problem"
 
         records.append(
@@ -173,6 +222,12 @@ def main() -> int:
                 "relative_path": rel_path,
                 "absolute_path": str(image_path),
                 "file_exists": file_exists,
+                "resolution_status": "exact" if file_exists else ("recoverable" if recoverable else "missing"),
+                "fallback_reason": fallback_reason,
+                "corrected_relative_path": (
+                    str(fallback_path.relative_to(dataset_root)).replace("\\", "/") if fallback_path else ""
+                ),
+                "corrected_absolute_path": str(fallback_path) if fallback_path else "",
                 "expected_patient_dir": patient_expected,
                 "actual_patient_dir": patient_in_path,
                 "expected_date_dir": date_expected,
@@ -186,15 +241,18 @@ def main() -> int:
 
     result_df = pd.DataFrame(records)
     problem_df = result_df[result_df["status"] != "ok"].copy()
-    missing_df = result_df[result_df["issues"].str.contains("missing_image_file", na=False)].copy()
+    recoverable_df = result_df[result_df["status"] == "recoverable"].copy()
+    missing_df = result_df[result_df["resolution_status"] == "missing"].copy()
 
     all_csv = output_dir / "annotated_fa_file_check_all_rows.csv"
     problems_csv = output_dir / "annotated_fa_file_check_problems.csv"
+    recoverable_csv = output_dir / "annotated_fa_file_check_recoverable_paths.csv"
     missing_csv = output_dir / "annotated_fa_file_check_missing_images.csv"
     summary_json = output_dir / "annotated_fa_file_check_summary.json"
 
     result_df.to_csv(all_csv, index=False)
     problem_df.to_csv(problems_csv, index=False)
+    recoverable_df.to_csv(recoverable_csv, index=False)
     missing_df.to_csv(missing_csv, index=False)
 
     issue_counts: Counter[str] = Counter()
@@ -203,6 +261,7 @@ def main() -> int:
             if issue:
                 issue_counts[issue] += 1
 
+    unresolved_problem_df = problem_df[problem_df["status"] != "recoverable"].copy()
     summary = {
         "annotations": str(annotations),
         "dataset_root": str(dataset_root),
@@ -210,20 +269,28 @@ def main() -> int:
         "rows_checked": int(len(result_df)),
         "ok_rows": int((result_df["status"] == "ok").sum()),
         "problem_rows": int(len(problem_df)),
+        "recoverable_rows": int(len(recoverable_df)),
+        "unresolved_problem_rows": int(len(unresolved_problem_df)),
         "missing_image_rows": int(len(missing_df)),
         "unique_missing_image_paths": int(missing_df["relative_path"].nunique()),
+        "resolution_status_counts": result_df["resolution_status"].value_counts(dropna=False).to_dict(),
+        "fallback_reason_counts": recoverable_df["fallback_reason"].value_counts(dropna=False).to_dict(),
         "issue_counts": dict(sorted(issue_counts.items())),
         "reports": {
             "all_rows_csv": str(all_csv),
             "problems_csv": str(problems_csv),
+            "recoverable_paths_csv": str(recoverable_csv),
             "missing_images_csv": str(missing_csv),
         },
     }
     summary_json.write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     print(json.dumps(summary, indent=2))
-    if len(problem_df):
+    if len(unresolved_problem_df):
         print(f"\n[problem_rows] See {problems_csv}")
+        return 1
+    if len(recoverable_df):
+        print(f"\n[recoverable_rows] See {recoverable_csv}")
         return 1
     print("\n[ok] Every annotated FA image exists in the expected canonical location.")
     return 0
