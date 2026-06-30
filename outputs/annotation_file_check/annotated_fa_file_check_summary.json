@@ -1,0 +1,19 @@
+{
+  "annotations": "/home/shashank/UVEITIS_OCT_classidication/UWFAFP_Annotations_Mo_4.5.2026 (Uveitis).xlsx",
+  "dataset_root": "/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical",
+  "sheet": "Data",
+  "rows_checked": 791,
+  "ok_rows": 495,
+  "problem_rows": 296,
+  "missing_image_rows": 247,
+  "unique_missing_image_paths": 246,
+  "issue_counts": {
+    "filename_mismatch_with_columns": 51,
+    "missing_image_file": 247
+  },
+  "reports": {
+    "all_rows_csv": "/home/shashank/UVEITIS_OCT_classidication/outputs/annotation_file_check/annotated_fa_file_check_all_rows.csv",
+    "problems_csv": "/home/shashank/UVEITIS_OCT_classidication/outputs/annotation_file_check/annotated_fa_file_check_problems.csv",
+    "missing_images_csv": "/home/shashank/UVEITIS_OCT_classidication/outputs/annotation_file_check/annotated_fa_file_check_missing_images.csv"
+  }
+}
