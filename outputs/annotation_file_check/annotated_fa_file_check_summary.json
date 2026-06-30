@@ -5,15 +5,33 @@
   "rows_checked": 791,
   "ok_rows": 495,
   "problem_rows": 296,
-  "missing_image_rows": 247,
-  "unique_missing_image_paths": 246,
+  "recoverable_rows": 245,
+  "unresolved_problem_rows": 51,
+  "missing_image_rows": 2,
+  "unique_missing_image_paths": 2,
+  "resolution_status_counts": {
+    "exact": 544,
+    "recoverable": 245,
+    "missing": 2
+  },
+  "fallback_reason_counts": {
+    "fa_0000_to_0001": 241,
+    "jpg_to_png": 2,
+    "fa_0001_to_0000": 1,
+    "same_eye_fa_sibling": 1
+  },
   "issue_counts": {
     "filename_mismatch_with_columns": 51,
-    "missing_image_file": 247
+    "missing_image_file": 2,
+    "recoverable_fa_0000_to_0001": 241,
+    "recoverable_fa_0001_to_0000": 1,
+    "recoverable_jpg_to_png": 2,
+    "recoverable_same_eye_fa_sibling": 1
   },
   "reports": {
     "all_rows_csv": "/home/shashank/UVEITIS_OCT_classidication/outputs/annotation_file_check/annotated_fa_file_check_all_rows.csv",
     "problems_csv": "/home/shashank/UVEITIS_OCT_classidication/outputs/annotation_file_check/annotated_fa_file_check_problems.csv",
+    "recoverable_paths_csv": "/home/shashank/UVEITIS_OCT_classidication/outputs/annotation_file_check/annotated_fa_file_check_recoverable_paths.csv",
     "missing_images_csv": "/home/shashank/UVEITIS_OCT_classidication/outputs/annotation_file_check/annotated_fa_file_check_missing_images.csv"
   }
 }
