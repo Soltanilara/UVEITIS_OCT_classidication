@@ -1,0 +1,10 @@
+{
+  "csv_path": "/home/shashank/UVEITIS_OCT_classidication/misclassified.csv",
+  "dataset_root": "/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical",
+  "output_dir": "/home/shashank/UVEITIS_OCT_classidication/misclassified_fundus_images",
+  "image_kind": "both",
+  "rows": 65,
+  "copied": 65,
+  "missing": 0,
+  "manifest": "/home/shashank/UVEITIS_OCT_classidication/misclassified_fundus_images/manifest.csv"
+}

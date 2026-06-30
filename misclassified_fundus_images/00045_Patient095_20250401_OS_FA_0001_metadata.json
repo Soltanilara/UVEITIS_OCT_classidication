@@ -1,0 +1,41 @@
+{
+  "row_index": 45,
+  "status": "copied",
+  "image_kind": "both",
+  "source_csv_image": "/home/tim/uveitis-research/data/most_recent_samples/Patient095/20250401/Patient095_20250401_OS_FA_0001.png",
+  "fa_relative_path": "Patient095/20250401/Patient095_20250401_OS_FA_0001.png",
+  "resolved_fa_image": "/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical/Patient095/20250401/Patient095_20250401_OS_FA_0001.png",
+  "resolved_fundus_image": "/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical/Patient095/20250401/Patient095_20250401_OS_FP_0000.png",
+  "copied_fa_image": "/home/shashank/UVEITIS_OCT_classidication/misclassified_fundus_images/00045_Patient095_20250401_OS_FA_0001_FA_Patient095_20250401_OS_FA_0001.png",
+  "copied_fundus_image": "/home/shashank/UVEITIS_OCT_classidication/misclassified_fundus_images/00045_Patient095_20250401_OS_FA_0001_FUNDUS_Patient095_20250401_OS_FP_0000.png",
+  "wrong_zones": [
+    7,
+    8,
+    10
+  ],
+  "preds": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+  ],
+  "labels": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    1,
+    1,
+    0,
+    1
+  ],
+  "error": ""
+}

@@ -5,24 +5,24 @@
   "rows_checked": 791,
   "ok_rows": 495,
   "problem_rows": 296,
-  "recoverable_rows": 290,
-  "unresolved_problem_rows": 6,
+  "recoverable_rows": 294,
+  "unresolved_problem_rows": 2,
   "missing_image_rows": 1,
   "unique_missing_image_paths": 1,
   "resolution_status_counts": {
-    "exact": 544,
-    "recoverable": 246,
+    "exact": 540,
+    "recoverable": 250,
     "missing": 1
   },
   "fallback_reason_counts": {
-    "expected_columns_fa_0001": 289,
+    "expected_columns_fa_0001": 293,
     "expected_columns_fa_0000": 1
   },
   "issue_counts": {
     "filename_mismatch_with_columns": 51,
     "missing_image_file": 1,
     "recoverable_expected_columns_fa_0000": 1,
-    "recoverable_expected_columns_fa_0001": 289
+    "recoverable_expected_columns_fa_0001": 293
   },
   "reports": {
     "all_rows_csv": "/home/shashank/UVEITIS_OCT_classidication/outputs/annotation_file_check/annotated_fa_file_check_all_rows.csv",
