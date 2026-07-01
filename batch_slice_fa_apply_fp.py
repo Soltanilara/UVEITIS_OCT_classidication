@@ -22,6 +22,7 @@ import contextlib
 import csv
 import importlib.util
 import json
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path, PureWindowsPath
 from typing import Any
 
@@ -247,7 +248,8 @@ def process_one(
     mask_png_dir = output_root / "mask_png" / stem_rel
     fp_zone_dir = output_root / "fp_masked_zones" / stem_rel
 
-    if args.resume and mask_npy_path.exists() and fp_zone_dir.exists():
+    fp_outputs_done = fp_zone_dir.exists() if fp_exists else args.allow_missing_fp
+    if args.resume and mask_npy_path.exists() and fp_outputs_done:
         return {
             "row_index": row_index,
             "status": "skipped_existing",
@@ -261,10 +263,11 @@ def process_one(
         mask_npy_path.parent.mkdir(parents=True, exist_ok=True)
         np.save(mask_npy_path, masks.astype(np.uint8))
 
-        labels = np.zeros((fa_h, fa_w), dtype=np.uint8)
-        for zone_num, mask in enumerate(masks, start=1):
-            labels[mask] = zone_num
-        write_png(label_png_path, labels)
+        if not args.no_label_png:
+            labels = np.zeros((fa_h, fa_w), dtype=np.uint8)
+            for zone_num, mask in enumerate(masks, start=1):
+                labels[mask] = zone_num
+            write_png(label_png_path, labels)
 
         if args.save_individual_masks:
             for zone_num, mask in enumerate(masks, start=1):
@@ -345,9 +348,11 @@ def parse_args() -> argparse.Namespace:
         help="Still write FA masks when the paired FP image is absent.",
     )
     parser.add_argument("--resume", action="store_true", help="Skip rows whose outputs already exist.")
+    parser.add_argument("--workers", type=int, default=1, help="Parallel worker processes.")
     parser.add_argument("--crop", action="store_true", help="Crop FP zone PNGs to each mask bounding box.")
     parser.add_argument("--save-debug", action="store_true", help="Save detected fovea debug PNGs.")
     parser.add_argument("--save-individual-masks", action="store_true")
+    parser.add_argument("--no-label-png", action="store_true", help="Do not write zone-label PNGs.")
     parser.add_argument("--px_per_mm", type=float, default=53.0)
     parser.add_argument("--inner_r_mm", type=float, default=3.0)
     parser.add_argument("--outer_r_mm", type=float, default=16.0)
@@ -358,12 +363,30 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def process_worker(payload: tuple[int, dict[str, Any], argparse.Namespace]) -> dict[str, Any]:
+    row_index, row_dict, args = payload
+    slicer = load_slicer_module(SCRIPT_PATH)
+    row = pd.Series(row_dict)
+    with open(args.output_root / "batch_stdout.log", "a", encoding="utf-8") as log:
+        with contextlib.redirect_stdout(log):
+            return process_one(row, row_index, args.dataset_root, args.output_root, slicer, args)
+
+
+def failure_from_exception(row_index: int, row: pd.Series, args: argparse.Namespace, exc: Exception) -> dict[str, Any]:
+    return {
+        "row_index": row_index,
+        "status": "error",
+        "fa_value": row.get(args.fa_column, ""),
+        "error_type": type(exc).__name__,
+        "error": str(exc),
+    }
+
+
 def main() -> int:
     args = parse_args()
     if not SCRIPT_PATH.exists():
         raise FileNotFoundError(f"Missing slicer script: {SCRIPT_PATH}")
 
-    slicer = load_slicer_module(SCRIPT_PATH)
     df = pd.read_csv(args.csv)
     if args.fa_column not in df.columns:
         raise KeyError(f"CSV is missing FA column {args.fa_column!r}")
@@ -379,30 +402,52 @@ def main() -> int:
     failure_rows: list[dict[str, Any]] = []
 
     total = len(selected)
-    for ordinal, (row_index, row) in enumerate(selected.iterrows(), start=1):
-        label = f"[{ordinal}/{total} row={row_index}]"
-        try:
-            if args.dry_run:
-                result = process_one(row, row_index, args.dataset_root, args.output_root, slicer, args)
-            else:
-                with open(args.output_root / "batch_stdout.log", "a", encoding="utf-8") as log:
-                    with contextlib.redirect_stdout(log):
-                        result = process_one(
-                            row, row_index, args.dataset_root, args.output_root, slicer, args
-                        )
-            manifest_rows.append(result)
-            print(f"{label} {result['status']}: {result['fa_rel']}")
-        except Exception as exc:
-            fa_value = row.get(args.fa_column, "")
-            failure = {
-                "row_index": row_index,
-                "status": "error",
-                "fa_value": fa_value,
-                "error_type": type(exc).__name__,
-                "error": str(exc),
+    workers = max(1, args.workers)
+    if workers == 1:
+        slicer = load_slicer_module(SCRIPT_PATH)
+        for ordinal, (row_index, row) in enumerate(selected.iterrows(), start=1):
+            label = f"[{ordinal}/{total} row={row_index}]"
+            try:
+                if args.dry_run:
+                    result = process_one(row, row_index, args.dataset_root, args.output_root, slicer, args)
+                else:
+                    with open(args.output_root / "batch_stdout.log", "a", encoding="utf-8") as log:
+                        with contextlib.redirect_stdout(log):
+                            result = process_one(
+                                row, row_index, args.dataset_root, args.output_root, slicer, args
+                            )
+                manifest_rows.append(result)
+                print(f"{label} {result['status']}: {result['fa_rel']}")
+            except Exception as exc:
+                failure = failure_from_exception(row_index, row, args, exc)
+                failure_rows.append(failure)
+                print(
+                    f"{label} error: {failure['fa_value']} :: "
+                    f"{failure['error_type']}: {failure['error']}"
+                )
+    else:
+        indexed_rows = list(selected.iterrows())
+        completed = 0
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(process_worker, (row_index, row.to_dict(), args)): (row_index, row)
+                for row_index, row in indexed_rows
             }
-            failure_rows.append(failure)
-            print(f"{label} error: {fa_value} :: {type(exc).__name__}: {exc}")
+            for future in as_completed(futures):
+                row_index, row = futures[future]
+                completed += 1
+                label = f"[{completed}/{total} row={row_index}]"
+                try:
+                    result = future.result()
+                    manifest_rows.append(result)
+                    print(f"{label} {result['status']}: {result['fa_rel']}")
+                except Exception as exc:
+                    failure = failure_from_exception(row_index, row, args, exc)
+                    failure_rows.append(failure)
+                    print(
+                        f"{label} error: {failure['fa_value']} :: "
+                        f"{failure['error_type']}: {failure['error']}"
+                    )
 
     manifest_path = args.output_root / "manifest.csv"
     failures_path = args.output_root / "failures.csv"
