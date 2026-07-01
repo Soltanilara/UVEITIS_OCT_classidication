@@ -189,6 +189,14 @@ def find_existing_mask_path(fa_path: Path) -> Path | None:
         stems.append(fa_path.stem.replace("_FA_0000", "_FA_0001"))
     if "_FA_0001" in fa_path.stem:
         stems.append(fa_path.stem.replace("_FA_0001", "_FA_0000"))
+    if "_OS_FA_" in fa_path.stem:
+        stems.append(fa_path.stem.replace("_OS_FA_", "_FA_OS_"))
+    if "_OD_FA_" in fa_path.stem:
+        stems.append(fa_path.stem.replace("_OD_FA_", "_FA_OD_"))
+    if "_FA_OS_" in fa_path.stem:
+        stems.append(fa_path.stem.replace("_FA_OS_", "_OS_FA_"))
+    if "_FA_OD_" in fa_path.stem:
+        stems.append(fa_path.stem.replace("_FA_OD_", "_OD_FA_"))
 
     suffixes = ["_masks_v2.npy", "_masks.npy", "_zone_masks.npy"]
     for stem in dict.fromkeys(stems):
@@ -196,6 +204,21 @@ def find_existing_mask_path(fa_path: Path) -> Path | None:
             candidate = fa_path.with_name(stem + suffix)
             if candidate.exists():
                 return candidate
+
+    parts = fa_path.stem.split("_")
+    patient = parts[0] if len(parts) >= 1 else ""
+    date = parts[1] if len(parts) >= 2 else ""
+    eye = next((part for part in parts if part in {"OD", "OS"}), "")
+    mask_candidates = [
+        path
+        for path in fa_path.parent.glob("*.npy")
+        if path.name.endswith(tuple(suffixes))
+        and patient in path.stem
+        and date in path.stem
+        and (not eye or eye in path.stem.split("_"))
+    ]
+    if mask_candidates:
+        return sorted(mask_candidates)[0]
     return None
 
 
@@ -266,12 +289,14 @@ def process_one(
             args.onh_ry,
         )
         masks = np.stack([mask_dict[name] for name in ZONE_NAMES], axis=0).astype(bool)
-    except Exception:
+    except Exception as detection_exc:
         if not args.fallback_existing_mask:
             raise
         existing_mask_path = find_existing_mask_path(fa_path)
         if existing_mask_path is None:
-            raise
+            raise RuntimeError(
+                f"detection_failed={detection_exc}; no sibling existing mask found for fallback"
+            ) from detection_exc
         masks = label_map_to_stack(np.load(existing_mask_path))
         if masks.shape[1:] != (fa_h, fa_w):
             masks = resize_masks_if_needed(masks, (fa_h, fa_w))
