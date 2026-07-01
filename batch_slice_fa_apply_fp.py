@@ -110,6 +110,42 @@ def resolve_existing_path(dataset_root: Path, rel_path: Path) -> Path:
     return full_path
 
 
+def find_matching_fp_path(dataset_root: Path, fa_rel: Path, fp_rel: Path) -> tuple[Path, Path]:
+    fp_path = resolve_existing_path(dataset_root, fp_rel)
+    if fp_path.exists():
+        return fp_rel, fp_path
+
+    fa_path = resolve_existing_path(dataset_root, fa_rel)
+    search_dirs = [fp_path.parent, fa_path.parent]
+    stem = fa_rel.stem
+    if "_FA_" in stem:
+        fp_prefix = stem.split("_FA_", 1)[0] + "_FP_"
+    else:
+        fp_prefix = stem.replace("_FA", "_FP")
+
+    candidates: list[Path] = []
+    for search_dir in dict.fromkeys(search_dirs):
+        if not search_dir.exists():
+            continue
+        candidates.extend(
+            path
+            for path in search_dir.iterdir()
+            if path.is_file()
+            and path.stem.startswith(fp_prefix)
+            and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+        )
+
+    if candidates:
+        chosen = sorted(candidates)[0]
+        try:
+            chosen_rel = chosen.relative_to(dataset_root)
+        except ValueError:
+            chosen_rel = fp_rel.with_name(chosen.name)
+        return chosen_rel, chosen
+
+    return fp_rel, fp_path
+
+
 def crop_to_mask(arr: np.ndarray, mask: np.ndarray) -> np.ndarray:
     rows = np.any(mask, axis=1)
     cols = np.any(mask, axis=0)
@@ -149,17 +185,18 @@ def process_one(
     fa_rel = clean_relative_path(row[args.fa_column])
     fp_rel = paired_fp_relative_path(row, fa_rel)
     fa_path = resolve_existing_path(dataset_root, fa_rel)
-    fp_path = resolve_existing_path(dataset_root, fp_rel)
+    fp_rel, fp_path = find_matching_fp_path(dataset_root, fa_rel, fp_rel)
 
     if not fa_path.exists():
         raise FileNotFoundError(f"FA image not found: {fa_path}")
-    if not fp_path.exists():
+    fp_exists = fp_path.exists()
+    if not fp_exists and not args.allow_missing_fp:
         raise FileNotFoundError(f"FP image not found: {fp_path}")
 
     if args.list_paths_only:
         return {
             "row_index": row_index,
-            "status": "paths_ok",
+            "status": "paths_ok" if fp_exists else "fa_ok_fp_missing",
             "patient_id": row.get("Patient_ID", ""),
             "eye": row.get("Eye", ""),
             "visit_date": row.get("Visit_Date", ""),
@@ -167,6 +204,7 @@ def process_one(
             "fp_rel": fp_rel.as_posix(),
             "fa_path": fa_path.as_posix(),
             "fp_path": fp_path.as_posix(),
+            "fp_exists": fp_exists,
         }
 
     fa_img = Image.open(fa_path).convert("RGBA")
@@ -233,22 +271,23 @@ def process_one(
                 mask_png_path = mask_png_dir / f"{zone_num:02d}_{ZONE_NAMES[zone_num - 1]}.png"
                 write_png(mask_png_path, (mask.astype(np.uint8) * 255))
 
-        fp_img = Image.open(fp_path).convert("RGBA")
-        fp_arr = np.array(fp_img)
-        fp_h, fp_w = fp_arr.shape[:2]
-        fp_masks = resize_masks_if_needed(masks, (fp_h, fp_w))
-        fp_zone_dir.mkdir(parents=True, exist_ok=True)
-        for zone_num, mask in enumerate(fp_masks, start=1):
-            zone_arr = fp_arr.copy()
-            zone_arr[~mask, 3] = 0
-            if args.crop:
-                zone_arr = crop_to_mask(zone_arr, mask)
-            out_path = fp_zone_dir / f"{zone_num:02d}_{ZONE_NAMES[zone_num - 1]}.png"
-            write_png(out_path, zone_arr)
+        if fp_exists:
+            fp_img = Image.open(fp_path).convert("RGBA")
+            fp_arr = np.array(fp_img)
+            fp_h, fp_w = fp_arr.shape[:2]
+            fp_masks = resize_masks_if_needed(masks, (fp_h, fp_w))
+            fp_zone_dir.mkdir(parents=True, exist_ok=True)
+            for zone_num, mask in enumerate(fp_masks, start=1):
+                zone_arr = fp_arr.copy()
+                zone_arr[~mask, 3] = 0
+                if args.crop:
+                    zone_arr = crop_to_mask(zone_arr, mask)
+                out_path = fp_zone_dir / f"{zone_num:02d}_{ZONE_NAMES[zone_num - 1]}.png"
+                write_png(out_path, zone_arr)
 
     return {
         "row_index": row_index,
-        "status": "ok" if not args.dry_run else "dry_run_ok",
+        "status": ("ok" if fp_exists else "fa_mask_ok_fp_missing") if not args.dry_run else "dry_run_ok",
         "patient_id": row.get("Patient_ID", ""),
         "eye": row.get("Eye", ""),
         "visit_date": row.get("Visit_Date", ""),
@@ -256,6 +295,7 @@ def process_one(
         "fp_rel": fp_rel.as_posix(),
         "fa_path": fa_path.as_posix(),
         "fp_path": fp_path.as_posix(),
+        "fp_exists": fp_exists,
         "fa_width": fa_w,
         "fa_height": fa_h,
         "fovea_x": cx,
@@ -298,6 +338,11 @@ def parse_args() -> argparse.Namespace:
         "--list-paths-only",
         action="store_true",
         help="Only verify FA/FP paths exist; do not open images or detect masks.",
+    )
+    parser.add_argument(
+        "--allow-missing-fp",
+        action="store_true",
+        help="Still write FA masks when the paired FP image is absent.",
     )
     parser.add_argument("--resume", action="store_true", help="Skip rows whose outputs already exist.")
     parser.add_argument("--crop", action="store_true", help="Crop FP zone PNGs to each mask bounding box.")
@@ -376,7 +421,15 @@ def main() -> int:
         "limit": limit,
         "selected_rows": total,
         "succeeded": sum(
-            row["status"] in {"ok", "dry_run_ok", "skipped_existing", "paths_ok"}
+            row["status"]
+            in {
+                "ok",
+                "dry_run_ok",
+                "skipped_existing",
+                "paths_ok",
+                "fa_ok_fp_missing",
+                "fa_mask_ok_fp_missing",
+            }
             for row in manifest_rows
         ),
         "failed": len(failure_rows),
