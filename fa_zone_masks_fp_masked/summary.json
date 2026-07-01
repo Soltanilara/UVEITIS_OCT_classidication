@@ -1,0 +1,11 @@
+{
+  "csv": "uveitis_fa_annotations_cleaned.csv",
+  "dataset_root": "/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical",
+  "output_root": "fa_zone_masks_fp_masked",
+  "start_row": 0,
+  "limit": 20,
+  "selected_rows": 20,
+  "succeeded": 20,
+  "failed": 0,
+  "dry_run": false
+}

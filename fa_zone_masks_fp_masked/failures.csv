@@ -1,0 +1,2 @@
+error,error_type,fa_value,row_index,status
+FP image not found: /mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical/Patient010/20230613/Patient010_20230613_OD_FP_0000.png,FileNotFoundError,Patient010\20230613\Patient010_20230613_OD_FA_0001.png,0,error
