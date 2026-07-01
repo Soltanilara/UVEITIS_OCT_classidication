@@ -175,6 +175,30 @@ def resize_masks_if_needed(masks: np.ndarray, size_hw: tuple[int, int]) -> np.nd
     return np.stack(resized, axis=0)
 
 
+def label_map_to_stack(label_map: np.ndarray) -> np.ndarray:
+    if label_map.ndim == 3 and label_map.shape[0] == 10:
+        return label_map.astype(bool)
+    if label_map.ndim != 2:
+        raise ValueError(f"Expected 2D label map or (10,H,W) stack, got shape {label_map.shape}")
+    return np.stack([(label_map == zone) for zone in range(1, 11)], axis=0).astype(bool)
+
+
+def find_existing_mask_path(fa_path: Path) -> Path | None:
+    stems = [fa_path.stem]
+    if "_FA_0000" in fa_path.stem:
+        stems.append(fa_path.stem.replace("_FA_0000", "_FA_0001"))
+    if "_FA_0001" in fa_path.stem:
+        stems.append(fa_path.stem.replace("_FA_0001", "_FA_0000"))
+
+    suffixes = ["_masks_v2.npy", "_masks.npy", "_zone_masks.npy"]
+    for stem in dict.fromkeys(stems):
+        for suffix in suffixes:
+            candidate = fa_path.with_name(stem + suffix)
+            if candidate.exists():
+                return candidate
+    return None
+
+
 def process_one(
     row: pd.Series,
     row_index: int,
@@ -217,28 +241,43 @@ def process_one(
         debug_dir = output_root / "debug" / fa_rel.with_suffix("")
         debug_dir.mkdir(parents=True, exist_ok=True)
 
-    cx, cy, angle_deg, yellow_count = slicer.detect_crosshair_from_yellow(
-        fa_arr,
-        output_dir=str(debug_dir) if debug_dir is not None else None,
-        save_debug=args.save_debug,
-    )
-    r_inner = args.inner_r_mm * args.px_per_mm
-    r_outer = args.outer_r_mm * args.px_per_mm
+    mask_source = "detected_crosshair"
+    fallback_mask_path = ""
+    try:
+        cx, cy, angle_deg, yellow_count = slicer.detect_crosshair_from_yellow(
+            fa_arr,
+            output_dir=str(debug_dir) if debug_dir is not None else None,
+            save_debug=args.save_debug,
+        )
+        r_inner = args.inner_r_mm * args.px_per_mm
+        r_outer = args.outer_r_mm * args.px_per_mm
 
-    mask_dict = slicer.make_masks(
-        fa_w,
-        fa_h,
-        cx,
-        cy,
-        r_inner,
-        r_outer,
-        angle_deg,
-        args.onh_offset_x,
-        args.onh_offset_y,
-        args.onh_rx,
-        args.onh_ry,
-    )
-    masks = np.stack([mask_dict[name] for name in ZONE_NAMES], axis=0).astype(bool)
+        mask_dict = slicer.make_masks(
+            fa_w,
+            fa_h,
+            cx,
+            cy,
+            r_inner,
+            r_outer,
+            angle_deg,
+            args.onh_offset_x,
+            args.onh_offset_y,
+            args.onh_rx,
+            args.onh_ry,
+        )
+        masks = np.stack([mask_dict[name] for name in ZONE_NAMES], axis=0).astype(bool)
+    except Exception:
+        if not args.fallback_existing_mask:
+            raise
+        existing_mask_path = find_existing_mask_path(fa_path)
+        if existing_mask_path is None:
+            raise
+        masks = label_map_to_stack(np.load(existing_mask_path))
+        if masks.shape[1:] != (fa_h, fa_w):
+            masks = resize_masks_if_needed(masks, (fa_h, fa_w))
+        cx, cy, angle_deg, yellow_count = "", "", "", ""
+        mask_source = "existing_mask_fallback"
+        fallback_mask_path = existing_mask_path.as_posix()
 
     stem_rel = fa_rel.with_suffix("")
     mask_npy_rel = stem_rel.with_name(stem_rel.name + "_zone_masks.npy")
@@ -288,9 +327,16 @@ def process_one(
                 out_path = fp_zone_dir / f"{zone_num:02d}_{ZONE_NAMES[zone_num - 1]}.png"
                 write_png(out_path, zone_arr)
 
+    if args.dry_run:
+        status = "dry_run_ok"
+    elif mask_source == "existing_mask_fallback":
+        status = "existing_mask_fallback" if fp_exists else "existing_mask_fallback_fp_missing"
+    else:
+        status = "ok" if fp_exists else "fa_mask_ok_fp_missing"
+
     return {
         "row_index": row_index,
-        "status": ("ok" if fp_exists else "fa_mask_ok_fp_missing") if not args.dry_run else "dry_run_ok",
+        "status": status,
         "patient_id": row.get("Patient_ID", ""),
         "eye": row.get("Eye", ""),
         "visit_date": row.get("Visit_Date", ""),
@@ -305,6 +351,8 @@ def process_one(
         "fovea_y": cy,
         "angle_deg": angle_deg,
         "yellow_pixels": yellow_count,
+        "mask_source": mask_source,
+        "fallback_mask_path": fallback_mask_path,
         "mask_npy": mask_npy_path.as_posix(),
         "label_png": label_png_path.as_posix(),
         "fp_zone_dir": fp_zone_dir.as_posix(),
@@ -346,6 +394,11 @@ def parse_args() -> argparse.Namespace:
         "--allow-missing-fp",
         action="store_true",
         help="Still write FA masks when the paired FP image is absent.",
+    )
+    parser.add_argument(
+        "--fallback-existing-mask",
+        action="store_true",
+        help="If crosshair detection fails, use a sibling *_masks_v2.npy or *_masks.npy label map.",
     )
     parser.add_argument("--resume", action="store_true", help="Skip rows whose outputs already exist.")
     parser.add_argument("--workers", type=int, default=1, help="Parallel worker processes.")
@@ -474,6 +527,8 @@ def main() -> int:
                 "paths_ok",
                 "fa_ok_fp_missing",
                 "fa_mask_ok_fp_missing",
+                "existing_mask_fallback",
+                "existing_mask_fallback_fp_missing",
             }
             for row in manifest_rows
         ),
