@@ -38,6 +38,156 @@ Use a Python environment with the dependencies used by scripts, including:
   - dataset directory: `Dataset 01032025`
   - split directories: `split_*` or `fold_*`
 
+## Cleaned FA/FP Annotation Files
+
+The cleaned full-dataset FA annotation file is:
+
+```text
+uveitis_fa_annotations_cleaned.csv
+```
+
+It contains one row per annotated FA image and includes:
+
+- `Image_File(FA)`: dataset-relative FA image path, e.g. `Patient010/20240723/Patient010_20240723_OD_FA_0001.png`
+- `UWFFA`: original full Windows-style FA source path from the annotation sheet
+- `UWFFP`: original full Windows-style paired fundus photo path
+- `Patient_ID`, `Eye`, `Visit_Date`
+- `Zone1_label` ... `Zone10_label`
+- path-cleaning audit columns such as `FA_Path_Correction_Status`, `FA_Path_Correction_Reason`, and `Row_Exclusion_Status`
+
+On the remote server, the canonical image dataset root is:
+
+```text
+/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical/
+```
+
+Because this path contains spaces, quote it in shell commands:
+
+```bash
+cd "/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical"
+```
+
+Rows that could not produce a usable zone mask are excluded from:
+
+```text
+uveitis_fa_annotations_cleaned_zone_masks_ready.csv
+```
+
+That ready CSV is derived from the original cleaned CSV and does not delete or modify any source images, masks, or the original annotation file.
+
+## FA Zone Masks and FP-Masked PNGs
+
+The batch script for creating FA zone masks and applying them to paired FP images is:
+
+```text
+batch_slice_fa_apply_fp.py
+```
+
+Typical remote-server command:
+
+```bash
+python batch_slice_fa_apply_fp.py \
+  --output-root "/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical_fa_zone_masks" \
+  --resume \
+  --allow-missing-fp \
+  --fallback-existing-mask \
+  --no-label-png \
+  --workers 4
+```
+
+Important flags:
+
+- `--resume`: skip rows whose expected outputs already exist
+- `--allow-missing-fp`: still create FA masks when a paired FP image is missing
+- `--fallback-existing-mask`: if yellow crosshair detection fails, reuse a sibling `*_masks_v2.npy`, `*_masks.npy`, or `*_zone_masks.npy` mask when available
+- `--no-label-png`: skip debug label PNGs to reduce output size and write time
+- `--workers N`: process multiple rows in parallel
+
+The output root used for the canonical run is:
+
+```text
+/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical_fa_zone_masks/
+```
+
+Expected output structure:
+
+```text
+batch_stdout.log
+manifest.csv
+failures.csv
+summary.json
+masks_npy/
+mask_labels_png/
+fp_masked_zones/
+```
+
+`masks_npy/` contains the main FA zone masks. Each file is a NumPy array with shape:
+
+```text
+(10, H, W)
+```
+
+The first axis is the zone index:
+
+```text
+0 = Zone 1
+1 = Zone 2
+...
+9 = Zone 10
+```
+
+Values are binary:
+
+```text
+0 = outside zone
+1 = inside zone
+```
+
+Example:
+
+```text
+masks_npy/Patient013/20210921/Patient013_20210921_OS_FA_0001_zone_masks.npy
+```
+
+`fp_masked_zones/` contains paired FP images with each FA-derived zone mask applied. Each successful FP row has 10 PNGs:
+
+```text
+fp_masked_zones/Patient013/20210921/Patient013_20210921_OS_FA_0001/
+  01_Zone_01_inner_upper_nasal.png
+  02_Zone_02_inner_upper_temporal.png
+  ...
+  10_Zone_10_far_periphery.png
+```
+
+Pixels outside the selected zone are transparent.
+
+`mask_labels_png/` contains optional debug/QC label images when `--no-label-png` is not used. Pixel values are zone IDs:
+
+```text
+0 = background/no zone
+1..10 = zone number
+```
+
+`manifest.csv` records successful or skipped rows and links source images to generated outputs. Useful columns include:
+
+- `row_index`
+- `status`
+- `fa_rel`, `fp_rel`
+- `fa_path`, `fp_path`
+- `mask_npy`
+- `fp_zone_dir`
+- `mask_source`
+- `fallback_mask_path`
+
+`failures.csv` records rows that still failed after detection and fallback. Useful columns include:
+
+- `row_index`
+- `fa_value`
+- `error_type`
+- `error`
+
+After the fallback recovery pass, only a small set of rows remained unusable because they had neither detectable yellow overlay/crosshair geometry nor an existing sibling mask file.
+
 ## Preprocessing Commands
 
 ### 1) Create a single train/val/test split
