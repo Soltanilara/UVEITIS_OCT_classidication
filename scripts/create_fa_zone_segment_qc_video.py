@@ -131,10 +131,7 @@ def zone_stack_from_mask(mask: np.ndarray, mask_path: Path) -> np.ndarray:
 
 
 def resize_mask(mask: np.ndarray, size: tuple[int, int]) -> np.ndarray:
-    return np.array(
-        Image.fromarray(mask.astype(np.uint8), mode="L").resize(size, Image.Resampling.NEAREST),
-        dtype=np.uint8,
-    )
+    return np.array(Image.fromarray(mask.astype(np.uint8)).resize(size, Image.Resampling.NEAREST), dtype=np.uint8)
 
 
 def fit_and_pad(image: Image.Image, tile_size: int, fill: tuple[int, int, int] = (8, 10, 12)) -> Image.Image:
@@ -149,21 +146,45 @@ def fit_and_pad(image: Image.Image, tile_size: int, fill: tuple[int, int, int] =
     return tile
 
 
-def make_zone_tile(image: Image.Image, zone_mask: np.ndarray, zone: int, tile_size: int, alpha: int) -> Image.Image:
-    image_arr = np.array(image.convert("RGB"), dtype=np.uint8)
-    if zone_mask.shape != image_arr.shape[:2]:
-        zone_mask = resize_mask(zone_mask, image.size)
+def resize_image_and_masks_to_tile(
+    image: Image.Image,
+    zone_stack: np.ndarray,
+    tile_size: int,
+    fill: tuple[int, int, int] = (8, 10, 12),
+) -> tuple[Image.Image, np.ndarray]:
+    """Resize once per frame and pad image/masks into tile coordinates."""
+    image = image.convert("RGB")
+    scale = min(tile_size / image.width, tile_size / image.height)
+    resized_size = (
+        max(1, int(round(image.width * scale))),
+        max(1, int(round(image.height * scale))),
+    )
+    resized_image = image.resize(resized_size, Image.Resampling.BILINEAR)
+    image_tile = Image.new("RGB", (tile_size, tile_size), fill)
+    left = (tile_size - resized_image.width) // 2
+    top = (tile_size - resized_image.height) // 2
+    image_tile.paste(resized_image, (left, top))
+
+    mask_tiles = np.zeros((zone_stack.shape[0], tile_size, tile_size), dtype=np.uint8)
+    for zone_idx in range(zone_stack.shape[0]):
+        resized_mask = resize_mask(zone_stack[zone_idx], resized_size)
+        mask_tiles[zone_idx, top : top + resized_size[1], left : left + resized_size[0]] = resized_mask
+    return image_tile, mask_tiles
+
+
+def make_zone_tile(image_tile: Image.Image, zone_mask: np.ndarray, zone: int, alpha: int) -> Image.Image:
+    image_arr = np.array(image_tile, dtype=np.uint8)
     zone_bool = zone_mask.astype(bool)
 
     masked = np.zeros_like(image_arr)
     masked[zone_bool] = image_arr[zone_bool]
-    tile = Image.fromarray(masked, mode="RGB")
+    tile = Image.fromarray(masked)
 
     color = ImageColor.getrgb(ZONE_COLORS[zone])
     overlay = np.zeros((*zone_bool.shape, 4), dtype=np.uint8)
     overlay[zone_bool] = (*color, alpha)
-    composited = Image.alpha_composite(tile.convert("RGBA"), Image.fromarray(overlay, mode="RGBA"))
-    return fit_and_pad(composited.convert("RGB"), tile_size)
+    composited = Image.alpha_composite(tile.convert("RGBA"), Image.fromarray(overlay))
+    return composited.convert("RGB")
 
 
 def draw_label_bar(tile: Image.Image, title: str, subtitle: str, font: ImageFont.ImageFont) -> Image.Image:
@@ -201,14 +222,15 @@ def build_frame(row: pd.Series, dataset_root: Path, mask_root: Path, tile_size: 
     if zone_stack.shape[1:] != (image.height, image.width):
         zone_stack = np.stack([resize_mask(zone_stack[z], image.size) for z in range(10)], axis=0)
 
+    image_tile, zone_stack_tile = resize_image_and_masks_to_tile(image, zone_stack, tile_size)
+
     font = ImageFont.load_default()
     tiles: list[Image.Image] = []
-    full_tile = fit_and_pad(image, tile_size)
     full_subtitle = f"{row.get('Patient_ID', '')} {row.get('Eye', '')} {row.get('Visit_Date', '')}".strip()
-    tiles.append(draw_label_bar(full_tile, "Full FA image", full_subtitle, font))
+    tiles.append(draw_label_bar(image_tile.copy(), "Full FA image", full_subtitle, font))
 
     for zone in range(1, 11):
-        zone_tile = make_zone_tile(image, zone_stack[zone - 1], zone, tile_size, alpha)
+        zone_tile = make_zone_tile(image_tile, zone_stack_tile[zone - 1], zone, alpha)
         title = f"Zone {zone}: {ZONE_NAMES[zone]}"
         tiles.append(draw_label_bar(zone_tile, title, annotation_text(row, zone), font))
 
