@@ -73,6 +73,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-name", default="fa_zone_segment_qc_video.mp4")
     parser.add_argument("--tile-size", type=int, default=260)
     parser.add_argument("--columns", type=int, default=4)
+    parser.add_argument(
+        "--source-image",
+        choices=("fa", "fundus"),
+        default="fa",
+        help="Image used for the full tile and zone segment tiles.",
+    )
     parser.add_argument("--fps", type=float, default=1.0)
     parser.add_argument("--seconds-per-image", type=float, default=1.5)
     parser.add_argument("--max-images", type=int, default=0, help="0 means include every resolvable row.")
@@ -114,6 +120,51 @@ def resolve_existing_image(dataset_root: Path, rel_path: Path) -> Path:
         if alt_upper.exists():
             return alt_upper
     raise FileNotFoundError(candidate)
+
+
+def resolve_fundus_path(dataset_root: Path, row: pd.Series, fa_rel: Path) -> Path:
+    if "Image File" in row and not pd.isna(row["Image File"]):
+        image_file_rel = clean_relative_path(row["Image File"])
+        try:
+            return resolve_existing_image(dataset_root, image_file_rel)
+        except FileNotFoundError:
+            pass
+
+    if "UWFFP" in row and not pd.isna(row["UWFFP"]):
+        fundus_rel = clean_relative_path(row["UWFFP"])
+        try:
+            return resolve_existing_image(dataset_root, fundus_rel)
+        except FileNotFoundError:
+            pass
+
+    derived_name = fa_rel.name.replace("_FA_", "_FP_").replace("_0001.", "_0000.")
+    derived_rel = fa_rel.with_name(derived_name)
+    try:
+        return resolve_existing_image(dataset_root, derived_rel)
+    except FileNotFoundError:
+        pass
+
+    eye_token = "_OD_" if "_OD_" in fa_rel.name else "_OS_" if "_OS_" in fa_rel.name else ""
+    search_dir = dataset_root / fa_rel.parent
+    if search_dir.exists():
+        candidates = sorted(
+            path
+            for path in search_dir.iterdir()
+            if path.is_file()
+            and "FP" in path.name.upper()
+            and (not eye_token or eye_token in path.name)
+            and path.suffix.lower() in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"}
+        )
+        if candidates:
+            return candidates[0]
+
+    raise FileNotFoundError(f"Could not resolve fundus image for {fa_rel}")
+
+
+def resolve_source_image(dataset_root: Path, row: pd.Series, fa_rel: Path, source_image: str) -> tuple[Path, str]:
+    if source_image == "fa":
+        return resolve_existing_image(dataset_root, fa_rel), "FA"
+    return resolve_fundus_path(dataset_root, row, fa_rel), "fundus"
 
 
 def mask_path_for_fa(mask_root: Path, fa_rel: Path) -> Path:
@@ -210,14 +261,22 @@ def annotation_text(row: pd.Series, zone: int) -> str:
     return f"annotation: {value}"
 
 
-def build_frame(row: pd.Series, dataset_root: Path, mask_root: Path, tile_size: int, columns: int, alpha: int) -> Image.Image:
+def build_frame(
+    row: pd.Series,
+    dataset_root: Path,
+    mask_root: Path,
+    tile_size: int,
+    columns: int,
+    alpha: int,
+    source_image: str,
+) -> Image.Image:
     fa_rel = clean_relative_path(row["Image_File(FA)"])
-    fa_path = resolve_existing_image(dataset_root, fa_rel)
+    image_path, source_label = resolve_source_image(dataset_root, row, fa_rel, source_image)
     mask_path = mask_path_for_fa(mask_root, fa_rel)
     if not mask_path.exists():
         raise FileNotFoundError(mask_path)
 
-    image = Image.open(fa_path).convert("RGB")
+    image = Image.open(image_path).convert("RGB")
     zone_stack = zone_stack_from_mask(np.load(mask_path), mask_path)
     if zone_stack.shape[1:] != (image.height, image.width):
         zone_stack = np.stack([resize_mask(zone_stack[z], image.size) for z in range(10)], axis=0)
@@ -227,7 +286,7 @@ def build_frame(row: pd.Series, dataset_root: Path, mask_root: Path, tile_size: 
     font = ImageFont.load_default()
     tiles: list[Image.Image] = []
     full_subtitle = f"{row.get('Patient_ID', '')} {row.get('Eye', '')} {row.get('Visit_Date', '')}".strip()
-    tiles.append(draw_label_bar(image_tile.copy(), "Full FA image", full_subtitle, font))
+    tiles.append(draw_label_bar(image_tile.copy(), f"Full {source_label} image", full_subtitle, font))
 
     for zone in range(1, 11):
         zone_tile = make_zone_tile(image_tile, zone_stack_tile[zone - 1], zone, alpha)
@@ -242,7 +301,8 @@ def build_frame(row: pd.Series, dataset_root: Path, mask_root: Path, tile_size: 
     frame = Image.new("RGB", (page_w, page_h), color=(18, 22, 26))
     draw = ImageDraw.Draw(frame)
     draw.text((padding, 12), safe_text(fa_rel.as_posix()), fill="white", font=font)
-    draw.text((padding, 30), safe_text(f"mask: {mask_path.relative_to(mask_root).as_posix()}"), fill=(190, 210, 230), font=font)
+    header_line = f"source: {source_label} | image: {image_path.name} | mask: {mask_path.relative_to(mask_root).as_posix()}"
+    draw.text((padding, 30), safe_text(header_line), fill=(190, 210, 230), font=font)
 
     for idx, tile in enumerate(tiles):
         col = idx % columns
@@ -263,13 +323,18 @@ def pick_rows(df: pd.DataFrame, max_images: int, sampling: str) -> pd.DataFrame:
     return df.iloc[indices].copy()
 
 
-def filter_resolvable_rows(df: pd.DataFrame, dataset_root: Path, mask_root: Path) -> tuple[pd.DataFrame, list[str]]:
+def filter_resolvable_rows(
+    df: pd.DataFrame,
+    dataset_root: Path,
+    mask_root: Path,
+    source_image: str,
+) -> tuple[pd.DataFrame, list[str]]:
     keep: list[int] = []
     skipped: list[str] = []
     for idx, row in df.iterrows():
         try:
             fa_rel = clean_relative_path(row["Image_File(FA)"])
-            resolve_existing_image(dataset_root, fa_rel)
+            resolve_source_image(dataset_root, row, fa_rel, source_image)
             if not mask_path_for_fa(mask_root, fa_rel).exists():
                 raise FileNotFoundError(mask_path_for_fa(mask_root, fa_rel))
             keep.append(idx)
@@ -335,7 +400,7 @@ def main() -> None:
     if missing:
         raise SystemExit(f"Missing required columns: {sorted(missing)}")
 
-    resolved_df, skipped = filter_resolvable_rows(df, dataset_root, mask_root)
+    resolved_df, skipped = filter_resolvable_rows(df, dataset_root, mask_root, args.source_image)
     selected_df = pick_rows(resolved_df, args.max_images, args.sampling)
     if selected_df.empty:
         raise SystemExit("No rows with resolvable FA images and zone masks were found.")
@@ -343,7 +408,7 @@ def main() -> None:
     fps = 1.0 / max(args.seconds_per_image, 0.1) if args.seconds_per_image > 0 else args.fps
     frame_paths: list[Path] = []
     for frame_idx, (_, row) in enumerate(selected_df.iterrows(), start=1):
-        frame = build_frame(row, dataset_root, mask_root, args.tile_size, args.columns, args.alpha)
+        frame = build_frame(row, dataset_root, mask_root, args.tile_size, args.columns, args.alpha, args.source_image)
         frame_path = output_dir / f"frame_{frame_idx:06d}.png"
         frame.save(frame_path, quality=95)
         frame_paths.append(frame_path)
