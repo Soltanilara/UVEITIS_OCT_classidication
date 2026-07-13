@@ -20,6 +20,7 @@ import pandas as pd
 
 
 JOIN_KEY_CANDIDATES = ("UWFFA", "Image_File(FA)")
+NORMALIZED_JOIN_COLUMN = "__fa_mask_join_key"
 ATTACH_COLUMNS = [
     "FA_Mask_Path",
     "FA_Mask_Abs_Path",
@@ -32,11 +33,23 @@ ATTACH_COLUMNS = [
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--ready-csv", required=True, help="Ready dataset CSV with FA mask columns.")
+    parser.add_argument(
+        "--ready-csv",
+        required=True,
+        help="Ready dataset CSV. Mask columns may already exist or be derived with --mask-root.",
+    )
     parser.add_argument("--input-root", required=True, help="Directory containing fold_*/ train/val/test CSVs.")
     parser.add_argument("--output-root", required=True, help="Directory where enriched fold_* CSVs will be written.")
     parser.add_argument("--drop-missing-mask", action="store_true", help="Drop split rows that do not have a matched mask.")
     parser.add_argument("--dataset-root", default="", help="Optional dataset root used to verify that the image file exists.")
+    parser.add_argument(
+        "--mask-root",
+        default="",
+        help=(
+            "Mask output root containing masks_npy/. If the ready CSV has no FA mask columns, "
+            "derive them from Image_File(FA) using the FA zone-mask naming convention."
+        ),
+    )
     parser.add_argument(
         "--mask-suffix",
         default="",
@@ -78,13 +91,51 @@ def build_lookup(ready_df: pd.DataFrame, join_key: str) -> pd.DataFrame:
     if missing:
         raise ValueError(f"Ready CSV is missing required columns: {missing}")
 
-    lookup = (
-        ready_df[[join_key, *ATTACH_COLUMNS]]
-        .drop_duplicates(subset=[join_key], keep="first")
-        .copy()
+    lookup = ready_df[[join_key, *ATTACH_COLUMNS]].copy()
+    lookup[NORMALIZED_JOIN_COLUMN] = normalize_join_series(lookup[join_key])
+    lookup = lookup.drop(columns=[join_key]).drop_duplicates(
+        subset=[NORMALIZED_JOIN_COLUMN], keep="first"
     )
-    lookup[join_key] = normalize_join_series(lookup[join_key])
     return lookup
+
+
+def derive_mask_columns(
+    ready_df: pd.DataFrame,
+    mask_root: Path,
+    dataset_root: Path | None,
+) -> pd.DataFrame:
+    """Derive the paths used by create_fa_zone_segment_qc_video.py."""
+    image_column = "Image_File(FA)"
+    if image_column not in ready_df.columns:
+        raise ValueError(f"Ready CSV is missing required column {image_column!r}")
+
+    derived = ready_df.copy()
+
+    def relative_image_path(value: object) -> Path:
+        text = str(value).strip().replace("\\", "/")
+        if not text:
+            raise ValueError("Empty Image_File(FA) value")
+        return Path(text)
+
+    def relative_mask_path(value: object) -> Path:
+        fa_rel = relative_image_path(value)
+        return Path("masks_npy") / fa_rel.with_name(f"{fa_rel.stem}_zone_masks.npy")
+
+    derived["FA_Mask_Path"] = derived[image_column].map(lambda value: relative_mask_path(value).as_posix())
+    derived["FA_Mask_Abs_Path"] = derived["FA_Mask_Path"].map(
+        lambda value: (mask_root / value).as_posix()
+    )
+    derived["FA_Image_Abs_Path"] = derived[image_column].map(
+        lambda value: (
+            (dataset_root / relative_image_path(value)).as_posix()
+            if dataset_root is not None
+            else relative_image_path(value).as_posix()
+        )
+    )
+    derived["FA_Mask_Exists"] = derived["FA_Mask_Abs_Path"].map(lambda value: Path(value).exists())
+    derived["FA_Final_Status"] = "ready"
+    derived["FA_Final_Recovery_Method"] = "fa_zone_mask_extraction"
+    return derived
 
 
 def replace_mask_suffix(path_value: str, mask_suffix: str) -> str:
@@ -123,8 +174,9 @@ def enrich_split(
     overlapping_attach_cols = [col for col in ATTACH_COLUMNS if col in split_df.columns]
     if overlapping_attach_cols:
         split_df = split_df.drop(columns=overlapping_attach_cols)
-    split_df[join_key] = normalize_join_series(split_df[join_key])
-    merged = split_df.merge(lookup, on=join_key, how="left", validate="m:1")
+    split_df[NORMALIZED_JOIN_COLUMN] = normalize_join_series(split_df[join_key])
+    merged = split_df.merge(lookup, on=NORMALIZED_JOIN_COLUMN, how="left", validate="m:1")
+    merged = merged.drop(columns=[NORMALIZED_JOIN_COLUMN])
     matched = merged["FA_Mask_Abs_Path"].notna()
 
     if drop_missing_mask:
@@ -149,6 +201,16 @@ def main() -> None:
     output_root = Path(args.output_root)
     output_root.mkdir(parents=True, exist_ok=True)
     dataset_root = Path(args.dataset_root) if args.dataset_root else None
+    mask_root = Path(args.mask_root) if args.mask_root else None
+
+    missing_attach_columns = [col for col in ATTACH_COLUMNS if col not in ready_df.columns]
+    if missing_attach_columns:
+        if mask_root is None:
+            raise ValueError(
+                f"Ready CSV is missing {missing_attach_columns}; provide --mask-root to derive them."
+            )
+        ready_df = derive_mask_columns(ready_df, mask_root, dataset_root)
+        print(f"Derived FA mask paths under: {mask_root}")
 
     split_names = ("train.csv", "val.csv", "test.csv", "train_final.csv")
     lookup = None
