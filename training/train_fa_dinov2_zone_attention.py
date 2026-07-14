@@ -568,7 +568,7 @@ def run_epoch(
     pos_weights: torch.Tensor | None,
     threshold: float | list[float] | np.ndarray,
     optimizer: torch.optim.Optimizer | None = None,
-    scaler: torch.cuda.amp.GradScaler | None = None,
+    scaler: torch.amp.GradScaler | None = None,
     scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
 ) -> dict[str, Any]:
     is_train = optimizer is not None
@@ -588,7 +588,7 @@ def run_epoch(
             if is_train:
                 optimizer.zero_grad(set_to_none=True)
 
-            with torch.cuda.amp.autocast(enabled=scaler is not None):
+            with torch.amp.autocast(device_type=device.type, enabled=scaler is not None):
                 logits = model(batch["full_image"], batch["zone_masks"])
                 loss, observed = masked_bce_loss(logits, batch["labels"], batch["observed_mask"], pos_weights)
 
@@ -763,7 +763,7 @@ def main() -> None:
     pos_weights = None if args.unweighted else compute_pos_weights(train_split.labels, train_split.observed_mask).to(device)
     optimizer = build_optimizer(model, args)
     scheduler = build_step_scheduler(optimizer, len(train_loader), args)
-    scaler = torch.cuda.amp.GradScaler(enabled=args.amp and torch.cuda.is_available())
+    scaler = torch.amp.GradScaler("cuda", enabled=args.amp and device.type == "cuda")
     scaler = scaler if scaler.is_enabled() else None
 
     metadata = {
@@ -876,7 +876,7 @@ def main() -> None:
             print(f"Early stopping after {bad_epochs} epochs without validation checkpoint-score improvement.")
             break
 
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
     model.load_state_dict(checkpoint["model_state_dict"])
     zone_thresholds = np.asarray(checkpoint["zone_thresholds"], dtype=np.float64)
     test_result = run_epoch(
