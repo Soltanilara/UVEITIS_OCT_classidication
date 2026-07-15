@@ -1,0 +1,11 @@
+experiment_name,status,gpu_used,start_time,end_time,exit_code,output_path
+baseline_no_aug,success,0,2026-07-15T01:50:07+00:00,2026-07-15T02:30:44+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/baseline_no_aug
+geom_only,success,1,2026-07-15T01:50:07+00:00,2026-07-15T02:30:44+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/geom_only
+intensity_only,success,0,2026-07-15T02:30:44+00:00,2026-07-15T03:11:00+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/intensity_only
+clahe_only,success,1,2026-07-15T02:30:44+00:00,2026-07-15T03:15:04+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/clahe_only
+geom_plus_intensity,success,0,2026-07-15T03:11:00+00:00,2026-07-15T03:47:21+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/geom_plus_intensity
+geom_plus_clahe,success,1,2026-07-15T03:15:04+00:00,2026-07-15T03:54:14+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/geom_plus_clahe
+intensity_plus_clahe,success,0,2026-07-15T03:47:21+00:00,2026-07-15T04:17:00+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/intensity_plus_clahe
+geom_intensity_clahe,success,1,2026-07-15T03:54:14+00:00,2026-07-15T04:27:40+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/geom_intensity_clahe
+best_core_plus_noise,success,0,2026-07-15T04:17:00+00:00,2026-07-15T04:44:55+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/best_core_plus_noise
+best_core_plus_blur,success,1,2026-07-15T04:27:40+00:00,2026-07-15T04:57:15+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/best_core_plus_blur

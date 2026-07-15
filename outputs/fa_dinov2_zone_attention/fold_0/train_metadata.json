@@ -1,0 +1,69 @@
+{
+  "args": {
+    "csvpath": "fold_zone_masks_ready_patient_split/fold_0",
+    "dataset_path": "",
+    "output_path": "outputs/fa_dinov2_zone_attention/fold_0",
+    "image_absolute_column": "FA_Image_Abs_Path",
+    "mask_absolute_column": "FA_Mask_Abs_Path",
+    "image_column": "Image_File(FA)",
+    "mask_column": "FA_Mask_Path",
+    "drop_missing_zone_rows": "all",
+    "dinov2_arch": "dinov2_vitb14",
+    "image_size": 392,
+    "batch_size": 2,
+    "num_workers": 4,
+    "epochs": 100,
+    "lr": 0.0001,
+    "head_lr": 0.001,
+    "weight_decay": 0.0001,
+    "warmup_epochs": 5,
+    "dropout": 0.2,
+    "freeze_backbone": false,
+    "unweighted": false,
+    "threshold": 0.5,
+    "min_lr": 1e-06,
+    "patience": 15,
+    "seed": 0,
+    "gpu": 0,
+    "amp": true,
+    "no_pretrained": false,
+    "brightness": false,
+    "contrast": false
+  },
+  "num_train": 538,
+  "num_val": 55,
+  "num_test": 152,
+  "target_zones": [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "zone10_removed_from_full_fa": true,
+  "aspect_ratio_preserved_with_padding": true,
+  "patch_grid": [
+    28,
+    28
+  ],
+  "pos_weights": [
+    1.6633663177490234,
+    1.5741627216339111,
+    1.650246262550354,
+    1.6372549533843994,
+    1.8115183115005493,
+    1.7397959232330322,
+    1.645320177078247,
+    1.5571428537368774,
+    1.5377358198165894
+  ],
+  "empty_mask_counts": {
+    "train": 0,
+    "val": 0,
+    "test": 0
+  }
+}

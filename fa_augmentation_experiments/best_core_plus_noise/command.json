@@ -1,0 +1,31 @@
+{
+  "experiment": "best_core_plus_noise",
+  "command": [
+    "/home/shashank/miniconda3/envs/retfound/bin/python",
+    "training/train_fa_dinov2_zone_attention.py",
+    "--output_path",
+    "/home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/best_core_plus_noise",
+    "--csvpath",
+    "fold_zone_masks_ready_patient_split/fold_0",
+    "--dataset_path",
+    "/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical",
+    "--mask_dataset_path",
+    "/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical_fa_zone_masks",
+    "--rotation",
+    "--translation",
+    "--scale",
+    "--brightness",
+    "--contrast",
+    "--gamma",
+    "--clahe",
+    "--gaussian_noise",
+    "--gaussian_noise_sigma_min",
+    "2",
+    "--gaussian_noise_sigma_max",
+    "5"
+  ],
+  "command_shell": "/home/shashank/miniconda3/envs/retfound/bin/python training/train_fa_dinov2_zone_attention.py --output_path /home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/best_core_plus_noise --csvpath fold_zone_masks_ready_patient_split/fold_0 --dataset_path '/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical' --mask_dataset_path '/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical_fa_zone_masks' --rotation --translation --scale --brightness --contrast --gamma --clahe --gaussian_noise --gaussian_noise_sigma_min 2 --gaussian_noise_sigma_max 5",
+  "gpu_slot": 0,
+  "CUDA_VISIBLE_DEVICES": "0",
+  "start_time": "2026-07-15T04:17:00+00:00"
+}

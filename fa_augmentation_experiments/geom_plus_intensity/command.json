@@ -1,0 +1,25 @@
+{
+  "experiment": "geom_plus_intensity",
+  "command": [
+    "/home/shashank/miniconda3/envs/retfound/bin/python",
+    "training/train_fa_dinov2_zone_attention.py",
+    "--output_path",
+    "/home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/geom_plus_intensity",
+    "--csvpath",
+    "fold_zone_masks_ready_patient_split/fold_0",
+    "--dataset_path",
+    "/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical",
+    "--mask_dataset_path",
+    "/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical_fa_zone_masks",
+    "--rotation",
+    "--translation",
+    "--scale",
+    "--brightness",
+    "--contrast",
+    "--gamma"
+  ],
+  "command_shell": "/home/shashank/miniconda3/envs/retfound/bin/python training/train_fa_dinov2_zone_attention.py --output_path /home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/geom_plus_intensity --csvpath fold_zone_masks_ready_patient_split/fold_0 --dataset_path '/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical' --mask_dataset_path '/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical_fa_zone_masks' --rotation --translation --scale --brightness --contrast --gamma",
+  "gpu_slot": 0,
+  "CUDA_VISIBLE_DEVICES": "0",
+  "start_time": "2026-07-15T03:11:00+00:00"
+}

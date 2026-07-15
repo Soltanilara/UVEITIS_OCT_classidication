@@ -1,0 +1,12 @@
+{
+  "index": 9,
+  "name": "best_core_plus_blur",
+  "status": "success",
+  "gpu": "1",
+  "gpu_slot": 1,
+  "start_time": "2026-07-15T04:27:40+00:00",
+  "end_time": "2026-07-15T04:57:15+00:00",
+  "exit_code": 0,
+  "output_path": "/home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/best_core_plus_blur",
+  "error": null
+}

@@ -1,0 +1,12 @@
+{
+  "index": 5,
+  "name": "geom_plus_clahe",
+  "status": "success",
+  "gpu": "1",
+  "gpu_slot": 1,
+  "start_time": "2026-07-15T03:15:04+00:00",
+  "end_time": "2026-07-15T03:54:14+00:00",
+  "exit_code": 0,
+  "output_path": "/home/shashank/UVEITIS_OCT_classidication/fa_augmentation_experiments/geom_plus_clahe",
+  "error": null
+}
