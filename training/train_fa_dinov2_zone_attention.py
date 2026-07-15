@@ -14,10 +14,12 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 from sklearn.metrics import average_precision_score, confusion_matrix, f1_score, precision_score, recall_score, roc_auc_score
 from torch.utils.data import DataLoader, Dataset
 from torchvision import transforms
+from torchvision.transforms import InterpolationMode
+from torchvision.transforms import functional as TF
 from tqdm import tqdm
 
 
@@ -69,8 +71,58 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--no_pretrained", action="store_true", help="Initialize DINOv2 architecture without pretrained weights.")
-    parser.add_argument("--brightness", action="store_true")
-    parser.add_argument("--contrast", action="store_true")
+    augmentation = parser.add_argument_group("training augmentation")
+    augmentation.add_argument("--rotation", action="store_true", help="Enable random rotation augmentation.")
+    augmentation.add_argument("--rotation_prob", type=float, default=0.7)
+    augmentation.add_argument("--rotation_degrees", type=float, default=10.0, help="Maximum absolute rotation in degrees.")
+    augmentation.add_argument("--translation", action="store_true", help="Enable random translation augmentation.")
+    augmentation.add_argument("--translation_prob", type=float, default=0.5)
+    augmentation.add_argument(
+        "--translation_fraction",
+        type=float,
+        default=0.05,
+        help="Maximum absolute translation as a fraction of image width/height.",
+    )
+    augmentation.add_argument("--scale", action="store_true", help="Enable random scale augmentation.")
+    augmentation.add_argument("--scale_prob", type=float, default=0.5)
+    augmentation.add_argument("--scale_min", type=float, default=0.9)
+    augmentation.add_argument("--scale_max", type=float, default=1.1)
+    augmentation.add_argument("--brightness", action="store_true", help="Enable random brightness augmentation.")
+    augmentation.add_argument("--brightness_prob", type=float, default=0.5)
+    augmentation.add_argument(
+        "--brightness_fraction",
+        type=float,
+        default=0.10,
+        help="Maximum fractional brightness change (0.10 means +/-10%%).",
+    )
+    augmentation.add_argument("--contrast", action="store_true", help="Enable random contrast augmentation.")
+    augmentation.add_argument("--contrast_prob", type=float, default=0.5)
+    augmentation.add_argument("--contrast_min", type=float, default=0.9)
+    augmentation.add_argument("--contrast_max", type=float, default=1.2)
+    augmentation.add_argument("--gamma", action="store_true", help="Enable random gamma augmentation.")
+    augmentation.add_argument("--gamma_prob", type=float, default=0.5)
+    augmentation.add_argument("--gamma_min", type=float, default=0.8)
+    augmentation.add_argument("--gamma_max", type=float, default=1.2)
+    augmentation.add_argument("--gaussian_noise", action="store_true", help="Enable Gaussian noise augmentation.")
+    augmentation.add_argument("--gaussian_noise_prob", type=float, default=0.3)
+    augmentation.add_argument("--gaussian_noise_sigma_min", type=float, default=2.0, help="Noise sigma in 8-bit intensity units.")
+    augmentation.add_argument("--gaussian_noise_sigma_max", type=float, default=5.0, help="Noise sigma in 8-bit intensity units.")
+    augmentation.add_argument("--gaussian_blur", action="store_true", help="Enable Gaussian blur augmentation.")
+    augmentation.add_argument("--gaussian_blur_prob", type=float, default=0.2)
+    augmentation.add_argument("--gaussian_blur_sigma_min", type=float, default=0.1)
+    augmentation.add_argument("--gaussian_blur_sigma_max", type=float, default=0.5)
+    augmentation.add_argument("--clahe", action="store_true", help="Enable stochastic CLAHE augmentation.")
+    augmentation.add_argument("--clahe_prob", type=float, default=0.3)
+    augmentation.add_argument("--clahe_clip_limit", type=float, default=2.0)
+    augmentation.add_argument("--clahe_grid_size", type=int, default=8, help="Number of CLAHE tiles along each image axis.")
+    augmentation.add_argument("--random_erasing", action="store_true", help="Enable random erasing augmentation.")
+    augmentation.add_argument("--random_erasing_prob", type=float, default=0.1)
+    augmentation.add_argument(
+        "--random_erasing_max_area",
+        type=float,
+        default=0.02,
+        help="Maximum erased fraction of image area.",
+    )
     return parser.parse_args()
 
 
@@ -217,22 +269,176 @@ def read_split(csv_file: str, args: argparse.Namespace) -> SplitData:
     )
 
 
-def build_transform(train: bool, args: argparse.Namespace) -> transforms.Compose:
-    ops = []
-    if train and (args.brightness or args.contrast):
-        ops.append(
-            transforms.ColorJitter(
-                brightness=0.2 if args.brightness else 0.0,
-                contrast=0.2 if args.contrast else 0.0,
-            )
-        )
-    ops.extend(
+def validate_augmentation_args(args: argparse.Namespace) -> None:
+    probability_names = [
+        "rotation_prob",
+        "translation_prob",
+        "scale_prob",
+        "brightness_prob",
+        "contrast_prob",
+        "gamma_prob",
+        "gaussian_noise_prob",
+        "gaussian_blur_prob",
+        "clahe_prob",
+        "random_erasing_prob",
+    ]
+    for name in probability_names:
+        value = getattr(args, name)
+        if not 0.0 <= value <= 1.0:
+            raise ValueError(f"--{name} must be between 0 and 1; got {value}.")
+
+    ordered_positive_ranges = [
+        ("scale_min", "scale_max"),
+        ("contrast_min", "contrast_max"),
+        ("gamma_min", "gamma_max"),
+        ("gaussian_noise_sigma_min", "gaussian_noise_sigma_max"),
+        ("gaussian_blur_sigma_min", "gaussian_blur_sigma_max"),
+    ]
+    for minimum_name, maximum_name in ordered_positive_ranges:
+        minimum = getattr(args, minimum_name)
+        maximum = getattr(args, maximum_name)
+        if minimum < 0.0 or maximum < minimum:
+            raise ValueError(f"Require 0 <= --{minimum_name} <= --{maximum_name}.")
+    if args.scale_min <= 0.0 or args.gamma_min <= 0.0:
+        raise ValueError("Scale and gamma values must be greater than zero.")
+    if args.rotation_degrees < 0.0 or not 0.0 <= args.translation_fraction <= 1.0:
+        raise ValueError("Require --rotation_degrees >= 0 and 0 <= --translation_fraction <= 1.")
+    if not 0.0 <= args.brightness_fraction <= 1.0:
+        raise ValueError("--brightness_fraction must be between 0 and 1.")
+    if args.clahe_clip_limit <= 0.0 or args.clahe_grid_size <= 0:
+        raise ValueError("CLAHE clip limit and grid size must be greater than zero.")
+    if not 0.0 <= args.random_erasing_max_area <= 1.0:
+        raise ValueError("--random_erasing_max_area must be between 0 and 1.")
+
+
+def build_transform() -> transforms.Compose:
+    return transforms.Compose(
         [
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]
     )
-    return transforms.Compose(ops)
+
+
+def apply_mask_aware_affine(
+    image: Image.Image,
+    zone_stack: np.ndarray,
+    args: argparse.Namespace,
+) -> tuple[Image.Image, np.ndarray]:
+    """Sample one affine transform and apply it identically to image and masks."""
+    angle = (
+        random.uniform(-args.rotation_degrees, args.rotation_degrees)
+        if args.rotation and random.random() < args.rotation_prob
+        else 0.0
+    )
+    if args.translation and random.random() < args.translation_prob:
+        max_dx = args.translation_fraction * image.width
+        max_dy = args.translation_fraction * image.height
+        translate = [int(round(random.uniform(-max_dx, max_dx))), int(round(random.uniform(-max_dy, max_dy)))]
+    else:
+        translate = [0, 0]
+    scale = (
+        random.uniform(args.scale_min, args.scale_max)
+        if args.scale and random.random() < args.scale_prob
+        else 1.0
+    )
+
+    image = TF.affine(
+        image,
+        angle=angle,
+        translate=translate,
+        scale=scale,
+        shear=[0.0, 0.0],
+        interpolation=InterpolationMode.BILINEAR,
+        fill=0,
+    )
+    transformed_masks = []
+    for zone_mask in zone_stack:
+        mask_image = Image.fromarray((zone_mask > 0).astype(np.uint8) * 255, mode="L")
+        mask_image = TF.affine(
+            mask_image,
+            angle=angle,
+            translate=translate,
+            scale=scale,
+            shear=[0.0, 0.0],
+            interpolation=InterpolationMode.NEAREST,
+            fill=0,
+        )
+        transformed_masks.append((np.asarray(mask_image, dtype=np.uint8) > 0).astype(np.float32))
+    return image, np.stack(transformed_masks, axis=0)
+
+
+def apply_clahe(image: Image.Image, clip_limit: float, grid_size: int) -> Image.Image:
+    """Apply CLAHE to luminance while preserving the image's chroma channels."""
+    try:
+        from skimage import exposure
+    except ImportError as exc:
+        raise ImportError("CLAHE augmentation requires scikit-image (`pip install scikit-image`).") from exc
+
+    ycbcr = np.asarray(image.convert("YCbCr"), dtype=np.uint8).copy()
+    height, width = ycbcr.shape[:2]
+    kernel_size = (max(1, math.ceil(height / grid_size)), max(1, math.ceil(width / grid_size)))
+    # skimage uses a normalized clip limit; 0.02 corresponds to the commonly
+    # used OpenCV-style clip limit of approximately 2.
+    normalized_clip_limit = min(1.0, clip_limit / 100.0)
+    luminance = exposure.equalize_adapthist(
+        ycbcr[..., 0].astype(np.float32) / 255.0,
+        kernel_size=kernel_size,
+        clip_limit=normalized_clip_limit,
+    )
+    ycbcr[..., 0] = np.clip(np.rint(luminance * 255.0), 0, 255).astype(np.uint8)
+    return Image.fromarray(ycbcr, mode="YCbCr").convert("RGB")
+
+
+def apply_random_erasing(image: Image.Image, max_area_fraction: float) -> Image.Image:
+    """Erase at most the requested image fraction using the image mean."""
+    if max_area_fraction <= 0.0:
+        return image
+    image_array = np.asarray(image, dtype=np.uint8).copy()
+    height, width = image_array.shape[:2]
+    image_area = height * width
+    max_area_pixels = max(1, int(math.floor(max_area_fraction * image_area)))
+    target_area = random.randint(1, max_area_pixels)
+    aspect_ratio = random.uniform(0.5, 2.0)
+    erase_height = min(height, max(1, int(round(math.sqrt(target_area / aspect_ratio)))))
+    erase_width = min(width, max(1, int(round(math.sqrt(target_area * aspect_ratio)))))
+    while erase_height * erase_width > max_area_pixels:
+        if erase_height >= erase_width and erase_height > 1:
+            erase_height -= 1
+        elif erase_width > 1:
+            erase_width -= 1
+        else:
+            break
+    top = random.randint(0, height - erase_height)
+    left = random.randint(0, width - erase_width)
+    fill = np.rint(image_array.reshape(-1, 3).mean(axis=0)).astype(np.uint8)
+    image_array[top : top + erase_height, left : left + erase_width] = fill
+    return Image.fromarray(image_array, mode="RGB")
+
+
+def apply_intensity_augmentations(image: Image.Image, args: argparse.Namespace) -> Image.Image:
+    if args.clahe and random.random() < args.clahe_prob:
+        image = apply_clahe(image, args.clahe_clip_limit, args.clahe_grid_size)
+    if args.brightness and random.random() < args.brightness_prob:
+        factor = random.uniform(1.0 - args.brightness_fraction, 1.0 + args.brightness_fraction)
+        image = ImageEnhance.Brightness(image).enhance(factor)
+    if args.contrast and random.random() < args.contrast_prob:
+        image = ImageEnhance.Contrast(image).enhance(random.uniform(args.contrast_min, args.contrast_max))
+    if args.gamma and random.random() < args.gamma_prob:
+        image = TF.adjust_gamma(image, gamma=random.uniform(args.gamma_min, args.gamma_max), gain=1.0)
+    if args.gaussian_blur and random.random() < args.gaussian_blur_prob:
+        sigma = random.uniform(args.gaussian_blur_sigma_min, args.gaussian_blur_sigma_max)
+        image = image.filter(ImageFilter.GaussianBlur(radius=sigma))
+    if args.gaussian_noise and random.random() < args.gaussian_noise_prob:
+        sigma = random.uniform(args.gaussian_noise_sigma_min, args.gaussian_noise_sigma_max)
+        image_array = np.asarray(image, dtype=np.float32)
+        # One noise field shared by all channels keeps monochromatic FA images
+        # monochromatic instead of introducing artificial color speckle.
+        noise = np.random.normal(0.0, sigma, size=(*image_array.shape[:2], 1))
+        image = Image.fromarray(np.clip(np.rint(image_array + noise), 0, 255).astype(np.uint8), mode="RGB")
+    if args.random_erasing and random.random() < args.random_erasing_prob:
+        image = apply_random_erasing(image, args.random_erasing_max_area)
+    return image
 
 
 def letterbox_image_and_masks(
@@ -263,7 +469,8 @@ class FAZoneDataset(Dataset):
     def __init__(self, split: SplitData, args: argparse.Namespace, train: bool):
         self.split = split
         self.args = args
-        self.image_transform = build_transform(train=train, args=args)
+        self.train = train
+        self.image_transform = build_transform()
 
     def __len__(self) -> int:
         return len(self.split.image_paths)
@@ -282,16 +489,22 @@ class FAZoneDataset(Dataset):
         keep_mask = (zone_stack[9] == 0).astype(np.uint8)
         image = Image.fromarray(image_arr * keep_mask[..., None], mode="RGB")
         image, zone_stack = letterbox_image_and_masks(image, zone_stack, self.args.image_size)
+        if self.train:
+            if self.args.rotation or self.args.translation or self.args.scale:
+                image, zone_stack = apply_mask_aware_affine(image, zone_stack, self.args)
+            image = apply_intensity_augmentations(image, self.args)
         full_image = self.image_transform(image)
 
         zone_masks = np.clip(zone_stack[:NUM_TARGET_ZONES], 0.0, 1.0).astype(np.float32)
+        zone_nonempty = zone_masks.reshape(NUM_TARGET_ZONES, -1).sum(axis=1) > 0
+        observed_mask = self.split.observed_mask[idx] & torch.from_numpy(zone_nonempty)
 
         return {
             "full_image": full_image,
             "zone_masks": torch.from_numpy(zone_masks),
             "labels": self.split.labels[idx],
-            "observed_mask": self.split.observed_mask[idx],
-            "zone_nonempty": self.split.zone_nonempty[idx],
+            "observed_mask": observed_mask,
+            "zone_nonempty": torch.from_numpy(zone_nonempty),
             "image_file": self.split.metadata["image_file"][idx],
             "patient_id": self.split.metadata["patient_id"][idx],
             "eye": self.split.metadata["eye"][idx],
@@ -712,6 +925,7 @@ def build_step_scheduler(
 
 def main() -> None:
     args = parse_args()
+    validate_augmentation_args(args)
     set_seed(args.seed)
     os.makedirs(args.output_path, exist_ok=True)
 
