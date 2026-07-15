@@ -31,8 +31,9 @@ from typing import Any
 # EDITABLE CONFIGURATION
 # =============================================================================
 
-# These values intentionally do not contain repository-specific absolute paths.
-TRAIN_SCRIPT = "train.py"
+# Repository-relative defaults for the FA zone-attention trainer. These remain
+# editable and contain no machine-specific absolute paths.
+TRAIN_SCRIPT = "training/train_fa_dinov2_zone_attention.py"
 BASE_ARGS: list[str] = []
 OUTPUT_ROOT = "fa_augmentation_experiments"
 EXTRA_ENV: dict[str, str] = {}
@@ -41,13 +42,12 @@ EXTRA_ENV: dict[str, str] = {}
 # sees exactly one GPU, as local cuda:0, even when the physical GPU is GPU 1.
 CUDA_VISIBLE_DEVICES: dict[int, str] = {0: "0", 1: "1"}
 
-# The example command template is:
-# python train.py --config <CONFIG_NAME> --output <OUTPUT_DIR> <EXTRA_ARGS>
-# Set CONFIG_FLAG or OUTPUT_FLAG to None if the training script does not use it.
-CONFIG_NAME = "fa_leakage"
-CONFIG_FLAG: str | None = "--config"
-OUTPUT_FLAG: str | None = "--output"
-WORKING_DIRECTORY: str | None = None
+# The current FA trainer uses --output_path and has no --config argument. For a
+# different trainer, these can be changed back to "--config" and "--output".
+CONFIG_NAME = ""
+CONFIG_FLAG: str | None = None
+OUTPUT_FLAG: str | None = "--output_path"
+WORKING_DIRECTORY: str | None = str(Path(__file__).resolve().parent)
 
 # Map readable augmentation names to the actual CLI flags accepted by the
 # training script. These currently match train_fa_dinov2_zone_attention.py;
@@ -191,6 +191,21 @@ def validate_configuration() -> None:
         unknown = set(experiment.get("augmentations", [])) - set(AUGMENTATION_FLAGS)
         if unknown:
             raise ValueError(f"Experiment {experiment['name']!r} uses unknown augmentations: {sorted(unknown)}")
+
+
+def resolve_training_script(train_script: str) -> Path:
+    """Resolve and validate the training entry point before starting workers."""
+    path = Path(train_script).expanduser()
+    if not path.is_absolute():
+        base = Path(WORKING_DIRECTORY) if WORKING_DIRECTORY else Path.cwd()
+        path = base / path
+    path = path.resolve()
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Training script not found: {path}. Edit TRAIN_SCRIPT at the top "
+            "of this launcher or pass --train-script."
+        )
+    return path
 
 
 def augmentation_args(experiment: dict[str, Any]) -> list[str]:
@@ -422,6 +437,8 @@ def stop_workers(workers: dict[int, mp.Process], task_queues: dict[int, mp.Queue
 def main() -> int:
     args = parse_args()
     validate_configuration()
+    if not args.dry_run:
+        resolve_training_script(args.train_script)
     output_root = Path(args.output_root).expanduser().resolve()
 
     tasks: list[dict[str, Any]] = []
