@@ -31,10 +31,19 @@ from typing import Any
 # EDITABLE CONFIGURATION
 # =============================================================================
 
-# Repository-relative defaults for the FA zone-attention trainer. These remain
-# editable and contain no machine-specific absolute paths.
+# Shared FA data and split settings used by every experiment.
 TRAIN_SCRIPT = "training/train_fa_dinov2_zone_attention.py"
-BASE_ARGS: list[str] = []
+DATASET_ROOT = "/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical"
+MASK_DATASET_ROOT = "/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical_fa_zone_masks"
+CSV_SPLIT_ROOT = "fold_zone_masks_ready_patient_split/fold_0"
+BASE_ARGS: list[str] = [
+    "--csvpath",
+    CSV_SPLIT_ROOT,
+    "--dataset_path",
+    DATASET_ROOT,
+    "--mask_dataset_path",
+    MASK_DATASET_ROOT,
+]
 OUTPUT_ROOT = "fa_augmentation_experiments"
 EXTRA_ENV: dict[str, str] = {}
 
@@ -42,8 +51,8 @@ EXTRA_ENV: dict[str, str] = {}
 # sees exactly one GPU, as local cuda:0, even when the physical GPU is GPU 1.
 CUDA_VISIBLE_DEVICES: dict[int, str] = {0: "0", 1: "1"}
 
-# The current FA trainer uses --output_path and has no --config argument. For a
-# different trainer, these can be changed back to "--config" and "--output".
+# This FA trainer has no --config argument and names its output flag
+# --output_path. Change these when adapting the launcher to another trainer.
 CONFIG_NAME = ""
 CONFIG_FLAG: str | None = None
 OUTPUT_FLAG: str | None = "--output_path"
@@ -191,21 +200,6 @@ def validate_configuration() -> None:
         unknown = set(experiment.get("augmentations", [])) - set(AUGMENTATION_FLAGS)
         if unknown:
             raise ValueError(f"Experiment {experiment['name']!r} uses unknown augmentations: {sorted(unknown)}")
-
-
-def resolve_training_script(train_script: str) -> Path:
-    """Resolve and validate the training entry point before starting workers."""
-    path = Path(train_script).expanduser()
-    if not path.is_absolute():
-        base = Path(WORKING_DIRECTORY) if WORKING_DIRECTORY else Path.cwd()
-        path = base / path
-    path = path.resolve()
-    if not path.is_file():
-        raise FileNotFoundError(
-            f"Training script not found: {path}. Edit TRAIN_SCRIPT at the top "
-            "of this launcher or pass --train-script."
-        )
-    return path
 
 
 def augmentation_args(experiment: dict[str, Any]) -> list[str]:
@@ -437,8 +431,6 @@ def stop_workers(workers: dict[int, mp.Process], task_queues: dict[int, mp.Queue
 def main() -> int:
     args = parse_args()
     validate_configuration()
-    if not args.dry_run:
-        resolve_training_script(args.train_script)
     output_root = Path(args.output_root).expanduser().resolve()
 
     tasks: list[dict[str, Any]] = []

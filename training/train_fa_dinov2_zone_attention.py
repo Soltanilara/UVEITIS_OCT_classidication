@@ -44,8 +44,19 @@ def parse_args() -> argparse.Namespace:
             "soft zone-mask attention pooling -> shared binary MLP for Zones 1-9."
         )
     )
-    parser.add_argument("--csvpath", type=str, default="fold_masked_server_clean/fold_0")
-    parser.add_argument("--dataset_path", type=str, default="", help="Fallback root for relative image/mask paths.")
+    parser.add_argument("--csvpath", type=str, default="fold_zone_masks_ready_patient_split/fold_0")
+    parser.add_argument(
+        "--dataset_path",
+        type=str,
+        default="/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical",
+        help="Fallback root for relative FA image paths.",
+    )
+    parser.add_argument(
+        "--mask_dataset_path",
+        type=str,
+        default="/mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical_fa_zone_masks",
+        help="Fallback root for relative FA zone-mask paths.",
+    )
     parser.add_argument("--output_path", type=str, default="output_fa_dinov2_zone_attention")
     parser.add_argument("--image_absolute_column", type=str, default="FA_Image_Abs_Path")
     parser.add_argument("--mask_absolute_column", type=str, default="FA_Mask_Abs_Path")
@@ -223,9 +234,9 @@ def read_split(csv_file: str, args: argparse.Namespace) -> SplitData:
             )
 
         if args.mask_absolute_column in df.columns and not pd.isna(row[args.mask_absolute_column]):
-            mask_paths.append(resolve_existing_path(args.dataset_path, row[args.mask_absolute_column]))
+            mask_paths.append(resolve_existing_path(args.mask_dataset_path, row[args.mask_absolute_column]))
         elif args.mask_column in df.columns:
-            mask_paths.append(resolve_existing_path(args.dataset_path, row[args.mask_column]))
+            mask_paths.append(resolve_existing_path(args.mask_dataset_path, row[args.mask_column]))
         else:
             raise ValueError(f"{csv_file} needs either {args.mask_absolute_column!r} or {args.mask_column!r}.")
 
