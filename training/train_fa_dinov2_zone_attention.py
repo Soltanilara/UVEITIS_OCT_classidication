@@ -152,6 +152,10 @@ def parse_args() -> argparse.Namespace:
 
 
 def set_seed(seed: int, deterministic: bool = False) -> None:
+    if deterministic:
+        # CuBLAS reads this before its first CUDA operation. Set it before
+        # torch.cuda.manual_seed_all() so matrix multiplies can be deterministic.
+        os.environ.setdefault("CUBLAS_WORKSPACE_CONFIG", ":4096:8")
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
