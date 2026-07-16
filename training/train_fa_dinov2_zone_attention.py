@@ -35,6 +35,7 @@ DINO_ARCHES = {
     "dinov2_vitl14": "vit_large_patch14_dinov2.lvd142m",
     "dinov2_vitg14": "vit_giant_patch14_dinov2.lvd142m",
 }
+wandb_run = None
 
 
 def parse_args() -> argparse.Namespace:
@@ -79,9 +80,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--min_lr", type=float, default=1e-6, help="Minimum backbone LR; the head keeps the same LR ratio.")
     parser.add_argument("--patience", type=int, default=15)
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--deterministic",
+        action="store_true",
+        help="Request deterministic PyTorch/CUDA execution and use a separately seeded training DataLoader.",
+    )
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--no_pretrained", action="store_true", help="Initialize DINOv2 architecture without pretrained weights.")
+    tracking = parser.add_argument_group("Weights & Biases")
+    tracking.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging.")
+    tracking.add_argument("--wandb_project", type=str, default="uveitis-fa-zone-attention")
+    tracking.add_argument("--wandb_entity", type=str, default="")
+    tracking.add_argument("--wandb_name", type=str, default="")
+    tracking.add_argument("--wandb_group", type=str, default="")
+    tracking.add_argument("--wandb_tags", type=str, default="", help="Comma-separated W&B tags.")
+    tracking.add_argument("--wandb_mode", choices=["", "online", "offline", "disabled"], default="")
     augmentation = parser.add_argument_group("training augmentation")
     augmentation.add_argument("--rotation", action="store_true", help="Enable random rotation augmentation.")
     augmentation.add_argument("--rotation_prob", type=float, default=0.7)
@@ -137,12 +151,77 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def set_seed(seed: int) -> None:
+def set_seed(seed: int, deterministic: bool = False) -> None:
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     os.environ["PYTHONHASHSEED"] = str(seed)
+    if deterministic:
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        torch.use_deterministic_algorithms(True, warn_only=True)
+
+
+def init_wandb(args: argparse.Namespace) -> None:
+    global wandb_run
+    if not args.wandb:
+        return
+    try:
+        import wandb
+    except ImportError as exc:
+        raise ImportError("Weights & Biases logging was requested with --wandb, but wandb is not installed.") from exc
+
+    if args.wandb_mode:
+        os.environ["WANDB_MODE"] = args.wandb_mode
+    fold_name = os.path.basename(os.path.normpath(args.csvpath))
+    run_name = args.wandb_name or os.path.basename(os.path.normpath(args.output_path))
+    tags = [tag.strip() for tag in args.wandb_tags.split(",") if tag.strip()]
+    enabled_augmentations = [
+        name
+        for name in (
+            "rotation",
+            "translation",
+            "scale",
+            "brightness",
+            "contrast",
+            "gamma",
+            "gaussian_noise",
+            "gaussian_blur",
+            "clahe",
+            "random_erasing",
+        )
+        if getattr(args, name)
+    ]
+    tags.extend(["dinov2-zone-attention", *enabled_augmentations, fold_name, f"seed:{args.seed}"])
+    wandb_run = wandb.init(
+        project=args.wandb_project,
+        entity=args.wandb_entity or None,
+        name=run_name,
+        group=args.wandb_group or None,
+        tags=tags,
+        dir=args.output_path,
+        config={key: value for key, value in vars(args).items() if key != "wandb"},
+    )
+    wandb.define_metric("epoch")
+    wandb.define_metric("train/*", step_metric="epoch")
+    wandb.define_metric("val/*", step_metric="epoch")
+    wandb.define_metric("val_zone/*", step_metric="epoch")
+    wandb.define_metric("early_stopping/*", step_metric="epoch")
+    wandb.define_metric("learning_rate/*", step_metric="epoch")
+
+
+def wandb_log(metrics: dict[str, Any], step: int | None = None) -> None:
+    if wandb_run is None:
+        return
+    if step is not None:
+        metrics = {"epoch": step, **metrics}
+    wandb_run.log(metrics)
+
+
+def finish_wandb() -> None:
+    if wandb_run is not None:
+        wandb_run.finish()
 
 
 def resolve_existing_path(base_folder: str, path_value: Any) -> str:
@@ -937,8 +1016,9 @@ def build_step_scheduler(
 def main() -> None:
     args = parse_args()
     validate_augmentation_args(args)
-    set_seed(args.seed)
+    set_seed(args.seed, deterministic=args.deterministic)
     os.makedirs(args.output_path, exist_ok=True)
+    init_wandb(args)
 
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
     if args.image_size % PATCH_SIZE != 0:
@@ -953,12 +1033,15 @@ def main() -> None:
             columns=["image_path", "zone", "mask_path", "empty_mask_count"],
         ).to_csv(os.path.join(args.output_path, f"{split_name}_empty_masks.csv"), index=False)
 
+    train_generator = torch.Generator()
+    train_generator.manual_seed(args.seed)
     train_loader = DataLoader(
         FAZoneDataset(train_split, args, train=True),
         batch_size=args.batch_size,
         shuffle=True,
         num_workers=args.num_workers,
         pin_memory=torch.cuda.is_available(),
+        generator=train_generator,
     )
     val_loader = DataLoader(
         FAZoneDataset(val_split, args, train=False),
@@ -1009,6 +1092,16 @@ def main() -> None:
     }
     with open(os.path.join(args.output_path, "train_metadata.json"), "w") as f:
         json.dump(metadata, f, indent=2)
+    if wandb_run is not None:
+        wandb_run.config.update(
+            {
+                "num_train": metadata["num_train"],
+                "num_val": metadata["num_val"],
+                "num_test": metadata["num_test"],
+                "pos_weights": metadata["pos_weights"],
+            },
+            allow_val_change=True,
+        )
 
     best_val_score = -math.inf
     best_val_f1 = -math.inf
@@ -1096,6 +1189,33 @@ def main() -> None:
         else:
             bad_epochs += 1
 
+        epoch_metrics = {
+            "train/loss": train_summary["loss"],
+            "train/mean_binary_f1": train_summary["mean_binary_f1"],
+            "train/mean_average_precision": train_summary["mean_average_precision"],
+            "train/mean_roc_auc": train_summary["mean_roc_auc"],
+            "val/loss": val_summary["loss"],
+            "val/mean_binary_f1": val_summary["mean_binary_f1"],
+            "val/mean_average_precision": val_summary["mean_average_precision"],
+            "val/mean_roc_auc": val_summary["mean_roc_auc"],
+            "val/mean_ap_zones_1_8": val_summary["mean_ap_zones_1_8"],
+            "val/zone9_average_precision": val_summary["zone9_average_precision"],
+            "val/zone9_f1": val_summary["zone9_f1"],
+            "val/checkpoint_score": val_summary["checkpoint_score"],
+            "val/best_checkpoint_score": best_val_score,
+            "val/best_epoch": best_epoch,
+            "early_stopping/bad_epochs": bad_epochs,
+            "learning_rate/backbone": optimizer.param_groups[1]["lr"],
+            "learning_rate/head": optimizer.param_groups[0]["lr"],
+        }
+        for zone_idx, zone_row in val_zone_metrics.iterrows():
+            zone = int(zone_row["Zone"])
+            epoch_metrics[f"val_zone/{zone}/f1"] = float(zone_row["BinaryF1"])
+            epoch_metrics[f"val_zone/{zone}/average_precision"] = float(zone_row["AveragePrecision"])
+            epoch_metrics[f"val_zone/{zone}/roc_auc"] = float(zone_row["RocAuc"])
+            epoch_metrics[f"val_zone/{zone}/threshold"] = float(zone_thresholds[zone_idx])
+        wandb_log(epoch_metrics, step=epoch)
+
         pd.DataFrame(history).to_csv(os.path.join(args.output_path, "history.csv"), index=False)
         if bad_epochs >= args.patience:
             print(f"Early stopping after {bad_epochs} epochs without validation checkpoint-score improvement.")
@@ -1121,6 +1241,27 @@ def main() -> None:
     }
     with open(os.path.join(args.output_path, "test_summary.json"), "w") as f:
         json.dump(test_summary, f, indent=2)
+    final_metrics = {
+        "test/loss": test_summary["loss"],
+        "test/mean_binary_f1": test_summary["mean_binary_f1"],
+        "test/mean_average_precision": test_summary["mean_average_precision"],
+        "test/mean_roc_auc": test_summary["mean_roc_auc"],
+        "test/mean_accuracy": test_summary["mean_accuracy"],
+        "test/macro_f1_flat": test_summary["macro_f1_flat"],
+        "test/zone9_average_precision": test_summary["zone9_average_precision"],
+        "test/zone9_f1": test_summary["zone9_f1"],
+        "test/checkpoint_score": test_summary["checkpoint_score"],
+        "test/best_epoch": best_epoch,
+        "test/best_val_checkpoint_score": best_val_score,
+    }
+    for _, zone_row in test_result["zone_metrics"].iterrows():
+        zone = int(zone_row["Zone"])
+        final_metrics[f"test_zone/{zone}/f1"] = float(zone_row["BinaryF1"])
+        final_metrics[f"test_zone/{zone}/average_precision"] = float(zone_row["AveragePrecision"])
+        final_metrics[f"test_zone/{zone}/roc_auc"] = float(zone_row["RocAuc"])
+    wandb_log(final_metrics)
+    if wandb_run is not None:
+        wandb_run.summary.update(final_metrics)
     print(
         f"Done. best_epoch={best_epoch} best_val_checkpoint_score={best_val_score:.4f} "
         f"best_val_mean_f1={best_val_f1:.4f}"
@@ -1128,4 +1269,7 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    finally:
+        finish_wandb()
