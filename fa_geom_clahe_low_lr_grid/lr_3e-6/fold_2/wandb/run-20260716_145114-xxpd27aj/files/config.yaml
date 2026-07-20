@@ -1,0 +1,319 @@
+_wandb:
+    value:
+        cli_version: 0.27.2
+        e:
+            eft6tbrwx6qde9458fq68rygnpxh94jy:
+                args:
+                    - --csvpath
+                    - fold_zone_masks_ready_patient_split/fold_2
+                    - --dataset_path
+                    - /mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical
+                    - --mask_dataset_path
+                    - /mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical_fa_zone_masks
+                    - --output_path
+                    - fa_geom_clahe_low_lr_grid/lr_3e-6/fold_2
+                    - --gpu
+                    - "0"
+                    - --batch_size
+                    - "2"
+                    - --epochs
+                    - "100"
+                    - --lr
+                    - "3e-6"
+                    - --head_lr
+                    - "3e-5"
+                    - --min_lr
+                    - "3e-8"
+                    - --weight_decay
+                    - "0.0001"
+                    - --warmup_epochs
+                    - "5"
+                    - --patience
+                    - "20"
+                    - --rotation
+                    - --rotation_prob
+                    - "0.7"
+                    - --rotation_degrees
+                    - "10"
+                    - --translation
+                    - --translation_prob
+                    - "0.5"
+                    - --translation_fraction
+                    - "0.05"
+                    - --scale
+                    - --scale_prob
+                    - "0.5"
+                    - --scale_min
+                    - "0.9"
+                    - --scale_max
+                    - "1.1"
+                    - --clahe
+                    - --clahe_prob
+                    - "0.3"
+                    - --clahe_clip_limit
+                    - "2.0"
+                    - --clahe_grid_size
+                    - "8"
+                    - --amp
+                    - --deterministic
+                    - --seed
+                    - "0"
+                    - --wandb
+                    - --wandb_project
+                    - uveitis-fa-zone-attention
+                    - --wandb_group
+                    - geom-clahe-low-lr-grid
+                    - --wandb_name
+                    - geom_clahe_lr_3e-6*fold*2
+                    - --wandb_tags
+                    - low-lr-grid,batch2,five-fold
+                codePath: training/train_fa_dinov2_zone_attention.py
+                codePathLocal: training/train_fa_dinov2_zone_attention.py
+                cpu_count: 24
+                cpu_count_logical: 48
+                cudaVersion: "13.1"
+                disk:
+                    /:
+                        total: "3766564446208"
+                        used: "3299414228992"
+                email: smmahesh@ucdavis.edu
+                executable: /home/shashank/miniconda3/envs/retfound/bin/python
+                git:
+                    commit: 0ee3791e5ab90c1d21e0f6a55d1004251822843c
+                    remote: git@github.com:Soltanilara/UVEITIS_OCT_classidication.git
+                gpu: NVIDIA A100 80GB PCIe
+                gpu_count: 2
+                gpu_nvidia:
+                    - architecture: Ampere
+                      cudaCores: 6912
+                      memoryTotal: "85899345920"
+                      name: NVIDIA A100 80GB PCIe
+                      uuid: GPU-e3532e5f-af41-f1ff-134b-77fb25166a18
+                    - architecture: Ampere
+                      cudaCores: 6912
+                      memoryTotal: "85899345920"
+                      name: NVIDIA A100 80GB PCIe
+                      uuid: GPU-591c4458-f018-49a9-14e4-4f2addc33cc7
+                host: lara94
+                memory:
+                    total: "540624781312"
+                os: Linux-5.15.0-171-generic-x86_64-with-glibc2.35
+                program: /home/shashank/UVEITIS_OCT_classidication/training/train_fa_dinov2_zone_attention.py
+                python: CPython 3.11.0
+                root: fa_geom_clahe_low_lr_grid/lr_3e-6/fold_2
+                startedAt: "2026-07-16T21:51:14.354018Z"
+                writerId: eft6tbrwx6qde9458fq68rygnpxh94jy
+        m:
+            - "1": epoch
+              "6":
+                - 3
+              "7": []
+            - "2": train/*
+              "5": 1
+              "6":
+                - 1
+              "7": []
+            - "2": val/*
+              "5": 1
+              "6":
+                - 1
+              "7": []
+            - "2": val_zone/*
+              "5": 1
+              "6":
+                - 1
+              "7": []
+            - "2": early_stopping/*
+              "5": 1
+              "6":
+                - 1
+              "7": []
+            - "2": learning_rate/*
+              "5": 1
+              "6":
+                - 1
+              "7": []
+        python_version: 3.11.0
+        t:
+            "1":
+                - 1
+                - 5
+                - 41
+                - 53
+            "2":
+                - 1
+                - 5
+                - 41
+                - 49
+                - 53
+                - 63
+            "3":
+                - 2
+                - 7
+                - 13
+                - 15
+                - 16
+                - 62
+            "4": 3.11.0
+            "5": 0.27.2
+            "12": 0.27.2
+            "13": linux-x86_64
+amp:
+    value: true
+batch_size:
+    value: 2
+brightness:
+    value: false
+brightness_fraction:
+    value: 0.1
+brightness_prob:
+    value: 0.5
+clahe:
+    value: true
+clahe_clip_limit:
+    value: 2
+clahe_grid_size:
+    value: 8
+clahe_prob:
+    value: 0.3
+contrast:
+    value: false
+contrast_max:
+    value: 1.2
+contrast_min:
+    value: 0.9
+contrast_prob:
+    value: 0.5
+csvpath:
+    value: fold_zone_masks_ready_patient_split/fold_2
+dataset_path:
+    value: /mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical
+deterministic:
+    value: true
+dinov2_arch:
+    value: dinov2_vitb14
+drop_missing_zone_rows:
+    value: all
+dropout:
+    value: 0.2
+epochs:
+    value: 100
+freeze_backbone:
+    value: false
+gamma:
+    value: false
+gamma_max:
+    value: 1.2
+gamma_min:
+    value: 0.8
+gamma_prob:
+    value: 0.5
+gaussian_blur:
+    value: false
+gaussian_blur_prob:
+    value: 0.2
+gaussian_blur_sigma_max:
+    value: 0.5
+gaussian_blur_sigma_min:
+    value: 0.1
+gaussian_noise:
+    value: false
+gaussian_noise_prob:
+    value: 0.3
+gaussian_noise_sigma_max:
+    value: 5
+gaussian_noise_sigma_min:
+    value: 2
+gpu:
+    value: 0
+head_lr:
+    value: 3e-05
+image_absolute_column:
+    value: FA_Image_Abs_Path
+image_column:
+    value: Image_File(FA)
+image_size:
+    value: 392
+lr:
+    value: 3e-06
+mask_absolute_column:
+    value: FA_Mask_Abs_Path
+mask_column:
+    value: FA_Mask_Path
+mask_dataset_path:
+    value: /mnt/NAS/Shashank/datasets/UveitisFundus/Sample 2.5.2026_canonical_fa_zone_masks
+min_lr:
+    value: 3e-08
+no_pretrained:
+    value: false
+num_test:
+    value: 171
+num_train:
+    value: 526
+num_val:
+    value: 48
+num_workers:
+    value: 4
+output_path:
+    value: fa_geom_clahe_low_lr_grid/lr_3e-6/fold_2
+patience:
+    value: 20
+pos_weights:
+    value:
+        - 1.9385474920272827
+        - 1.874316930770874
+        - 1.9886363744735718
+        - 2.0229885578155518
+        - 1.692307710647583
+        - 1.85326087474823
+        - 1.792553186416626
+        - 1.5485436916351318
+        - 1.7684210538864136
+random_erasing:
+    value: false
+random_erasing_max_area:
+    value: 0.02
+random_erasing_prob:
+    value: 0.1
+rotation:
+    value: true
+rotation_degrees:
+    value: 10
+rotation_prob:
+    value: 0.7
+scale:
+    value: true
+scale_max:
+    value: 1.1
+scale_min:
+    value: 0.9
+scale_prob:
+    value: 0.5
+seed:
+    value: 0
+threshold:
+    value: 0.5
+translation:
+    value: true
+translation_fraction:
+    value: 0.05
+translation_prob:
+    value: 0.5
+unweighted:
+    value: false
+wandb_entity:
+    value: ""
+wandb_group:
+    value: geom-clahe-low-lr-grid
+wandb_mode:
+    value: ""
+wandb_name:
+    value: geom_clahe_lr_3e-6*fold*2
+wandb_project:
+    value: uveitis-fa-zone-attention
+wandb_tags:
+    value: low-lr-grid,batch2,five-fold
+warmup_epochs:
+    value: 5
+weight_decay:
+    value: 0.0001
