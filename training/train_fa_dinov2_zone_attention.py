@@ -26,6 +26,8 @@ from tqdm import tqdm
 NUM_TOTAL_ZONES = 10
 NUM_TARGET_ZONES = 9
 PATCH_SIZE = 14
+ANATOMICAL_ZONE_GROUPS = ((0, 4), (4, 8), (8, 9))
+ANATOMICAL_GROUP_NAMES = ("zones_1_4", "zones_5_8", "optic_nerve_zone_9")
 ZONE_COLUMNS = [f"Zone{i}_label" for i in range(1, NUM_TOTAL_ZONES + 1)]
 TARGET_ZONE_COLUMNS = ZONE_COLUMNS[:NUM_TARGET_ZONES]
 FALLBACK_EXTS = [".png", ".jpg", ".jpeg", ".tif", ".tiff", ".bmp"]
@@ -74,6 +76,21 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weight_decay", type=float, default=1e-4)
     parser.add_argument("--warmup_epochs", type=int, default=5)
     parser.add_argument("--dropout", type=float, default=0.2)
+    parser.add_argument(
+        "--head_variant",
+        choices=["shared", "group_outputs", "group_adapters", "group_mlps"],
+        default="shared",
+        help=(
+            "Classifier architecture: shared (Experiment A), shared projection with group-specific outputs (B), "
+            "shared projection with residual group adapters (C), or separate group MLPs (D)."
+        ),
+    )
+    parser.add_argument(
+        "--adapter_bottleneck_ratio",
+        type=float,
+        default=0.25,
+        help="Bottleneck width relative to feature width for --head_variant group_adapters.",
+    )
     parser.add_argument("--freeze_backbone", action="store_true")
     parser.add_argument("--unweighted", action="store_true", help="Disable per-zone BCE positive weights.")
     parser.add_argument("--threshold", type=float, default=0.5, help="Fallback threshold used for training metrics.")
@@ -676,20 +693,108 @@ class SoftZoneAttentionPooling(nn.Module):
         return pooled * nonempty.to(pooled.dtype)
 
 
+class AnatomicalGroupClassifier(nn.Module):
+    """Classification heads for the three anatomical zone families.
+
+    Zones 1-4 and 5-8 share a classifier within their family; zone 9 has its
+    own optic-nerve classifier. Experiment A remains implemented directly in
+    ``FAZoneDinoClassifier`` to preserve its original checkpoint key names.
+    """
+
+    def __init__(self, input_dim: int, hidden_dim: int, dropout: float, variant: str, adapter_ratio: float):
+        super().__init__()
+        self.variant = variant
+        if variant in {"group_outputs", "group_adapters"}:
+            self.shared_projection = nn.Sequential(
+                nn.Linear(input_dim, hidden_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+            )
+            self.output_heads = nn.ModuleList([nn.Linear(hidden_dim, 1) for _ in ANATOMICAL_ZONE_GROUPS])
+            if variant == "group_adapters":
+                if not 0.0 < adapter_ratio <= 1.0:
+                    raise ValueError("--adapter_bottleneck_ratio must be in (0, 1].")
+                bottleneck_dim = max(1, int(round(hidden_dim * adapter_ratio)))
+                self.adapters = nn.ModuleList(
+                    [
+                        nn.Sequential(
+                            nn.LayerNorm(hidden_dim),
+                            nn.Linear(hidden_dim, bottleneck_dim),
+                            nn.GELU(),
+                            nn.Dropout(dropout),
+                            nn.Linear(bottleneck_dim, hidden_dim),
+                        )
+                        for _ in ANATOMICAL_ZONE_GROUPS
+                    ]
+                )
+        elif variant == "group_mlps":
+            self.group_mlps = nn.ModuleList(
+                [
+                    nn.Sequential(
+                        nn.Linear(input_dim, hidden_dim),
+                        nn.GELU(),
+                        nn.Dropout(dropout),
+                        nn.Linear(hidden_dim, 1),
+                    )
+                    for _ in ANATOMICAL_ZONE_GROUPS
+                ]
+            )
+        else:
+            raise ValueError(f"Unsupported head variant: {variant}")
+
+    @staticmethod
+    def _join_group_logits(features: torch.Tensor, heads: nn.ModuleList) -> torch.Tensor:
+        logits = [head(features[:, start:end]).squeeze(-1) for head, (start, end) in zip(heads, ANATOMICAL_ZONE_GROUPS)]
+        return torch.cat(logits, dim=1)
+
+    def forward(self, fused: torch.Tensor) -> torch.Tensor:
+        if self.variant == "group_outputs":
+            projected = self.shared_projection(fused)
+            return self._join_group_logits(projected, self.output_heads)
+        if self.variant == "group_adapters":
+            projected = self.shared_projection(fused)
+            logits = []
+            for group_idx, (start, end) in enumerate(ANATOMICAL_ZONE_GROUPS):
+                group_features = projected[:, start:end]
+                adapted = group_features + self.adapters[group_idx](group_features)
+                logits.append(self.output_heads[group_idx](adapted).squeeze(-1))
+            return torch.cat(logits, dim=1)
+        return self._join_group_logits(fused, self.group_mlps)
+
+
 class FAZoneDinoClassifier(nn.Module):
-    def __init__(self, arch: str, image_size: int, pretrained: bool, dropout: float):
+    def __init__(
+        self,
+        arch: str,
+        image_size: int,
+        pretrained: bool,
+        dropout: float,
+        head_variant: str = "shared",
+        adapter_bottleneck_ratio: float = 0.25,
+    ):
         super().__init__()
         if image_size % PATCH_SIZE != 0:
             raise ValueError(f"--image_size must be divisible by {PATCH_SIZE}; got {image_size}.")
         self.backbone = DinoTokenBackbone(arch=arch, image_size=image_size, pretrained=pretrained)
         self.pool = SoftZoneAttentionPooling(feature_dim=self.backbone.feature_dim)
         hidden_dim = self.backbone.feature_dim
-        self.head = nn.Sequential(
-            nn.Linear(2 * self.backbone.feature_dim, hidden_dim),
-            nn.GELU(),
-            nn.Dropout(dropout),
-            nn.Linear(hidden_dim, 1),
-        )
+        self.head_variant = head_variant
+        if head_variant == "shared":
+            # Preserve Experiment A's architecture and state-dict key names.
+            self.head = nn.Sequential(
+                nn.Linear(2 * self.backbone.feature_dim, hidden_dim),
+                nn.GELU(),
+                nn.Dropout(dropout),
+                nn.Linear(hidden_dim, 1),
+            )
+        else:
+            self.head = AnatomicalGroupClassifier(
+                input_dim=2 * self.backbone.feature_dim,
+                hidden_dim=hidden_dim,
+                dropout=dropout,
+                variant=head_variant,
+                adapter_ratio=adapter_bottleneck_ratio,
+            )
         self.grid_size = (image_size // PATCH_SIZE, image_size // PATCH_SIZE)
 
     def forward(self, full_image: torch.Tensor, zone_masks: torch.Tensor) -> torch.Tensor:
@@ -697,7 +802,8 @@ class FAZoneDinoClassifier(nn.Module):
         zone_embeddings = self.pool(patch_tokens=patch_tokens, zone_masks=zone_masks, grid_size=self.grid_size)
         cls_per_zone = cls_token.unsqueeze(1).expand(-1, NUM_TARGET_ZONES, -1)
         fused = torch.cat([zone_embeddings, cls_per_zone], dim=-1)
-        return self.head(fused).squeeze(-1)
+        logits = self.head(fused)
+        return logits.squeeze(-1) if self.head_variant == "shared" else logits
 
 
 def compute_pos_weights(labels: torch.Tensor, observed_mask: torch.Tensor) -> torch.Tensor:
@@ -1067,6 +1173,8 @@ def main() -> None:
         image_size=args.image_size,
         pretrained=not args.no_pretrained,
         dropout=args.dropout,
+        head_variant=args.head_variant,
+        adapter_bottleneck_ratio=args.adapter_bottleneck_ratio,
     ).to(device)
     if args.freeze_backbone:
         for param in model.backbone.parameters():
@@ -1087,6 +1195,12 @@ def main() -> None:
         "zone10_removed_from_full_fa": True,
         "aspect_ratio_preserved_with_padding": True,
         "patch_grid": [args.image_size // PATCH_SIZE, args.image_size // PATCH_SIZE],
+        "anatomical_zone_groups": {
+            name: list(range(start + 1, end + 1))
+            for name, (start, end) in zip(ANATOMICAL_GROUP_NAMES, ANATOMICAL_ZONE_GROUPS)
+        },
+        "head_parameter_count": sum(param.numel() for param in model.head.parameters()),
+        "total_parameter_count": sum(param.numel() for param in model.parameters()),
         "pos_weights": None if pos_weights is None else pos_weights.detach().cpu().tolist(),
         "empty_mask_counts": {
             "train": len(train_split.empty_mask_records),
