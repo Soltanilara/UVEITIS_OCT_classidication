@@ -68,7 +68,6 @@ COMMON_ARGS = [
     "--dataset_path", DATASET_ROOT,
     "--mask_dataset_path", MASK_ROOT,
     "--gpu", "0",  # Each process sees one physical GPU as local cuda:0.
-    "--batch_size", "2",
     "--epochs", "100",
     "--lr", "1e-5",
     "--head_lr", "1e-4",
@@ -78,7 +77,6 @@ COMMON_ARGS = [
     "--dropout", "0.2",
     "--patience", "20",
     "--seed", "0",
-    "--deterministic",
     "--amp",
     "--rotation",
     "--rotation_prob", "0.7",
@@ -112,6 +110,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--wandb-project", default="uveitis-fa-zone-attention")
     parser.add_argument("--output-root", type=Path, default=OUTPUT_ROOT)
     parser.add_argument("--python", default=sys.executable)
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=2,
+        help="Per-GPU batch size. Keep 2 for direct comparison with Experiment A; benchmark 8, 16, or 32 for speed.",
+    )
+    parser.add_argument("--num-workers", type=int, default=4, help="DataLoader workers per training process.")
+    parser.add_argument(
+        "--fast",
+        action="store_true",
+        help="Disable deterministic CUDA enforcement for potentially faster training.",
+    )
     return parser.parse_args()
 
 
@@ -181,8 +191,12 @@ def build_tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
                 "--csvpath", str(CSV_ROOT / f"fold_{fold}"),
                 "--output_path", str(output_dir),
                 "--head_variant", experiment["head_variant"],
+                "--batch_size", str(args.batch_size),
+                "--num_workers", str(args.num_workers),
                 *COMMON_ARGS,
             ]
+            if not args.fast:
+                command.append("--deterministic")
             if args.wandb:
                 command.extend(
                     [
@@ -319,6 +333,8 @@ def finish_run(run: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> int:
     args = parse_args()
+    if args.batch_size < 1 or args.num_workers < 0:
+        raise ValueError("Require --batch-size >= 1 and --num-workers >= 0.")
     if len(GPU_IDS) != len(set(GPU_IDS)) or not GPU_IDS:
         raise ValueError("GPU_IDS must contain unique physical GPU indices.")
     if MAX_CONCURRENT_JOBS != 2:

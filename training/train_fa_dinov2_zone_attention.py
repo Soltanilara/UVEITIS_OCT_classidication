@@ -970,7 +970,7 @@ def compute_metrics(
 def move_batch(batch: dict[str, Any], device: torch.device) -> dict[str, Any]:
     moved = {}
     for key, value in batch.items():
-        moved[key] = value.to(device) if torch.is_tensor(value) else value
+        moved[key] = value.to(device, non_blocking=device.type == "cuda") if torch.is_tensor(value) else value
     return moved
 
 
@@ -1151,6 +1151,7 @@ def main() -> None:
         shuffle=True,
         num_workers=args.num_workers,
         pin_memory=torch.cuda.is_available(),
+        persistent_workers=args.num_workers > 0,
         generator=train_generator,
     )
     val_loader = DataLoader(
@@ -1159,6 +1160,7 @@ def main() -> None:
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=torch.cuda.is_available(),
+        persistent_workers=args.num_workers > 0,
     )
     test_loader = DataLoader(
         FAZoneDataset(test_split, args, train=False),
@@ -1166,6 +1168,7 @@ def main() -> None:
         shuffle=False,
         num_workers=args.num_workers,
         pin_memory=torch.cuda.is_available(),
+        persistent_workers=args.num_workers > 0,
     )
 
     model = FAZoneDinoClassifier(
