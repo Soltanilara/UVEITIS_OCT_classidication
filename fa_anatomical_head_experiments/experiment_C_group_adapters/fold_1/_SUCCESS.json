@@ -1,0 +1,12 @@
+{
+  "index": 6,
+  "experiment": "C",
+  "name": "group_adapters",
+  "fold": 1,
+  "status": "success",
+  "gpu": 1,
+  "start_time": "2026-07-22T01:04:20+00:00",
+  "end_time": "2026-07-22T01:50:27+00:00",
+  "exit_code": 0,
+  "output_path": "/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_C_group_adapters/fold_1"
+}

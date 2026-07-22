@@ -1,0 +1,16 @@
+experiment,name,fold,status,gpu,start_time,end_time,exit_code,output_path
+B,group_outputs,0,success,0,2026-07-21T22:44:42+00:00,2026-07-22T00:25:02+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_B_group_outputs/fold_0
+B,group_outputs,1,success,1,2026-07-21T22:44:42+00:00,2026-07-21T23:20:51+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_B_group_outputs/fold_1
+B,group_outputs,2,success,1,2026-07-21T23:20:51+00:00,2026-07-21T23:51:18+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_B_group_outputs/fold_2
+B,group_outputs,3,success,1,2026-07-21T23:51:18+00:00,2026-07-22T01:04:20+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_B_group_outputs/fold_3
+B,group_outputs,4,success,0,2026-07-22T00:25:02+00:00,2026-07-22T00:55:41+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_B_group_outputs/fold_4
+C,group_adapters,0,success,0,2026-07-22T00:55:41+00:00,2026-07-22T01:48:06+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_C_group_adapters/fold_0
+C,group_adapters,1,success,1,2026-07-22T01:04:20+00:00,2026-07-22T01:50:27+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_C_group_adapters/fold_1
+C,group_adapters,2,success,0,2026-07-22T01:48:07+00:00,2026-07-22T02:16:37+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_C_group_adapters/fold_2
+C,group_adapters,3,success,1,2026-07-22T01:50:27+00:00,2026-07-22T02:43:33+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_C_group_adapters/fold_3
+C,group_adapters,4,success,0,2026-07-22T02:16:37+00:00,2026-07-22T02:46:53+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_C_group_adapters/fold_4
+D,group_mlps,0,success,1,2026-07-22T02:43:33+00:00,2026-07-22T03:20:37+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_D_group_mlps/fold_0
+D,group_mlps,1,success,0,2026-07-22T02:46:53+00:00,2026-07-22T03:21:50+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_D_group_mlps/fold_1
+D,group_mlps,2,success,1,2026-07-22T03:20:37+00:00,2026-07-22T03:50:28+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_D_group_mlps/fold_2
+D,group_mlps,3,success,0,2026-07-22T03:21:50+00:00,2026-07-22T04:15:26+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_D_group_mlps/fold_3
+D,group_mlps,4,success,1,2026-07-22T03:50:28+00:00,2026-07-22T04:25:06+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_D_group_mlps/fold_4

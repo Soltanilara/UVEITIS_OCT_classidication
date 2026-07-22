@@ -1,0 +1,29 @@
+{
+  "mean_binary_f1": 0.7448669478374236,
+  "mean_average_precision": 0.8890452291321232,
+  "mean_roc_auc": 0.9213369731827821,
+  "mean_ap_zones_1_8": 0.8962334098113942,
+  "zone9_average_precision": 0.8315397836979566,
+  "zone9_f1": 0.6262626262626263,
+  "checkpoint_score": 0.8768253219773628,
+  "mean_accuracy": 0.8149440715883669,
+  "micro_f1_flat": 0.8150074294205052,
+  "macro_f1_flat": 0.8010089849174744,
+  "observed_zone_labels": 1346,
+  "zone_thresholds": [
+    0.22,
+    0.3,
+    0.23,
+    0.21,
+    0.45,
+    0.12,
+    0.24,
+    0.47,
+    0.5
+  ],
+  "loss": 0.47564953521314735,
+  "empty_mask_zone_labels": 0,
+  "best_epoch": 2,
+  "best_val_mean_f1": 0.921387254720588,
+  "best_val_checkpoint_score": 0.9249810606060607
+}

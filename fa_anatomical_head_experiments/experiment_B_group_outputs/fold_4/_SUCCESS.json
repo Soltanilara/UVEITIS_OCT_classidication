@@ -1,0 +1,12 @@
+{
+  "index": 4,
+  "experiment": "B",
+  "name": "group_outputs",
+  "fold": 4,
+  "status": "success",
+  "gpu": 0,
+  "start_time": "2026-07-22T00:25:02+00:00",
+  "end_time": "2026-07-22T00:55:41+00:00",
+  "exit_code": 0,
+  "output_path": "/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_B_group_outputs/fold_4"
+}

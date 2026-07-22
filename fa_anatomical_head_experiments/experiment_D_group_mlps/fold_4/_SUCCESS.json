@@ -1,0 +1,12 @@
+{
+  "index": 14,
+  "experiment": "D",
+  "name": "group_mlps",
+  "fold": 4,
+  "status": "success",
+  "gpu": 1,
+  "start_time": "2026-07-22T03:50:28+00:00",
+  "end_time": "2026-07-22T04:25:06+00:00",
+  "exit_code": 0,
+  "output_path": "/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/experiment_D_group_mlps/fold_4"
+}
