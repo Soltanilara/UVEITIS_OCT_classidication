@@ -105,6 +105,8 @@ def main() -> None:
         if stack.shape[1:] != base.shape[:2]:
             stack = np.stack([np.asarray(Image.fromarray(x.astype(np.uint8) * 255).resize(image.size, Image.Resampling.NEAREST)) > 0
                               for x in stack])
+        zone9_only = np.where(stack[8, ..., None], base, 0).astype(np.uint8)
+        Image.fromarray(zone9_only, "RGB").save(ns.output_dir / ("zone9_only_" + original_name))
         rgba = np.zeros((*base.shape[:2], 4), dtype=np.uint8)
         for zone, zone_mask in enumerate(stack, 1):
             rgba[zone_mask] = (*COLORS[zone - 1], ns.alpha)
