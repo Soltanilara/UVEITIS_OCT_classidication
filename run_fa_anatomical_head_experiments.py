@@ -62,6 +62,26 @@ HEAD_EXPERIMENTS = [
         "description": "One complete MLP per anatomical group",
     },
 ]
+BACKBONE_CONFIGS = {
+    "dinov2": {
+        "image_size": 392,
+        "extra_args": ["--dinov2_arch", "dinov2_vitb14"],
+        "gradient_checkpointing": False,
+        "description": "General DINOv2 ViT-B/14 baseline",
+    },
+    "retfound_dinov2": {
+        "image_size": 392,
+        "extra_args": ["--dinov2_arch", "dinov2_vitl14"],
+        "gradient_checkpointing": True,
+        "description": "RETFound-DINOv2 ViT-L/14 specialist encoder",
+    },
+    "dinov3_vitl16": {
+        "image_size": 384,
+        "extra_args": [],
+        "gradient_checkpointing": True,
+        "description": "DINOv3 ViT-L/16 LVD-1689M generalist encoder",
+    },
+}
 
 # Fixed geometry + CLAHE, low-LR configuration used by the established best run.
 COMMON_ARGS = [
@@ -110,6 +130,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--wandb-project", default="uveitis-fa-zone-attention")
     parser.add_argument("--output-root", type=Path, default=OUTPUT_ROOT)
     parser.add_argument("--python", default=sys.executable)
+    parser.add_argument(
+        "--experiments",
+        nargs="+",
+        choices=[experiment["label"] for experiment in HEAD_EXPERIMENTS],
+        default=[experiment["label"] for experiment in HEAD_EXPERIMENTS],
+        help="Anatomical heads to run. Use '--experiments D' for the separate group-MLP head.",
+    )
+    parser.add_argument(
+        "--backbones",
+        nargs="+",
+        choices=sorted(BACKBONE_CONFIGS),
+        default=["dinov2"],
+        help="One or more encoders to compare for every selected head and fold.",
+    )
+    parser.add_argument("--retfound-dinov2-checkpoint", default="RETFound_dinov2_meh")
+    parser.add_argument("--dinov3-model-id", default="facebook/dinov3-vitl16-pretrain-lvd1689m")
+    parser.add_argument("--hf-local-files-only", action="store_true")
     parser.add_argument(
         "--batch-size",
         type=int,
@@ -182,43 +219,64 @@ def query_free_gpus() -> list[int]:
 def build_tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
     tasks = []
     index = 0
-    for experiment in HEAD_EXPERIMENTS:
-        for fold in range(5):
-            output_dir = args.output_root.expanduser().resolve() / f"experiment_{experiment['label']}_{experiment['name']}" / f"fold_{fold}"
-            command = [
-                args.python,
-                str(TRAIN_SCRIPT),
-                "--csvpath", str(CSV_ROOT / f"fold_{fold}"),
-                "--output_path", str(output_dir),
-                "--head_variant", experiment["head_variant"],
-                "--batch_size", str(args.batch_size),
-                "--num_workers", str(args.num_workers),
-                *COMMON_ARGS,
-            ]
-            if not args.fast:
-                command.append("--deterministic")
-            if args.wandb:
-                command.extend(
-                    [
-                        "--wandb",
-                        "--wandb_project", args.wandb_project,
-                        "--wandb_name", f"head_{experiment['label']}_{experiment['name']}_fold_{fold}",
-                        "--wandb_group", "fa-anatomical-head-ablation",
-                        "--wandb_tags", f"head-ablation,experiment-{experiment['label']},geometry-clahe,lr-1e-5",
-                    ]
+    selected_experiments = [experiment for experiment in HEAD_EXPERIMENTS if experiment["label"] in args.experiments]
+    preserve_legacy_paths = args.backbones == ["dinov2"] and args.experiments == ["B", "C", "D"]
+    for backbone_name in args.backbones:
+        backbone_config = BACKBONE_CONFIGS[backbone_name]
+        for experiment in selected_experiments:
+            for fold in range(5):
+                experiment_root = args.output_root.expanduser().resolve()
+                if not preserve_legacy_paths:
+                    experiment_root = experiment_root / f"backbone_{backbone_name}"
+                output_dir = experiment_root / f"experiment_{experiment['label']}_{experiment['name']}" / f"fold_{fold}"
+                command = [
+                    args.python,
+                    str(TRAIN_SCRIPT),
+                    "--csvpath", str(CSV_ROOT / f"fold_{fold}"),
+                    "--output_path", str(output_dir),
+                    "--head_variant", experiment["head_variant"],
+                    "--backbone", backbone_name,
+                    "--image_size", str(backbone_config["image_size"]),
+                    "--batch_size", str(args.batch_size),
+                    "--num_workers", str(args.num_workers),
+                    *backbone_config["extra_args"],
+                    *COMMON_ARGS,
+                ]
+                if backbone_name == "retfound_dinov2":
+                    command.extend(["--retfound_dinov2_checkpoint", args.retfound_dinov2_checkpoint])
+                if backbone_name == "dinov3_vitl16":
+                    command.extend(["--dinov3_model_id", args.dinov3_model_id])
+                if args.hf_local_files_only:
+                    command.append("--hf_local_files_only")
+                if backbone_config["gradient_checkpointing"]:
+                    command.append("--gradient_checkpointing")
+                if not args.fast:
+                    command.append("--deterministic")
+                if args.wandb:
+                    command.extend(
+                        [
+                            "--wandb",
+                            "--wandb_project", args.wandb_project,
+                            "--wandb_name", f"{backbone_name}_head_{experiment['label']}_{experiment['name']}_fold_{fold}",
+                            "--wandb_group", "fa-anatomical-head-backbone-comparison",
+                            "--wandb_tags", (
+                                f"head-ablation,experiment-{experiment['label']},backbone-{backbone_name},"
+                                "geometry-clahe,lr-1e-5"
+                            ),
+                        ]
+                    )
+                tasks.append(
+                    {
+                        "index": index,
+                        "experiment": experiment["label"],
+                        "name": f"{backbone_name}_{experiment['name']}",
+                        "description": f"{backbone_config['description']}; {experiment['description']}",
+                        "fold": fold,
+                        "output_dir": output_dir,
+                        "command": command,
+                    }
                 )
-            tasks.append(
-                {
-                    "index": index,
-                    "experiment": experiment["label"],
-                    "name": experiment["name"],
-                    "description": experiment["description"],
-                    "fold": fold,
-                    "output_dir": output_dir,
-                    "command": command,
-                }
-            )
-            index += 1
+                index += 1
     return tasks
 
 
@@ -344,10 +402,10 @@ def main() -> int:
     tasks = build_tasks(args)
 
     if args.dry_run:
-        print("Dry run: 15 commands; no files or processes will be created.\n")
+        print(f"Dry run: {len(tasks)} commands; no files or processes will be created.\n")
         print(f"GPU pool: {GPU_IDS}; maximum concurrent jobs: {MAX_CONCURRENT_JOBS}\n")
         for task in tasks:
-            print(f"[{task['index'] + 1:02d}/15] Experiment {task['experiment']} {task['name']} fold {task['fold']}")
+            print(f"[{task['index'] + 1:02d}/{len(tasks)}] Experiment {task['experiment']} {task['name']} fold {task['fold']}")
             print(f"  {shlex.join(task['command'])}\n")
         return 0
 

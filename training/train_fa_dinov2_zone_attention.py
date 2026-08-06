@@ -25,7 +25,7 @@ from tqdm import tqdm
 
 NUM_TOTAL_ZONES = 10
 NUM_TARGET_ZONES = 9
-PATCH_SIZE = 14
+DEFAULT_DINOV2_PATCH_SIZE = 14
 ANATOMICAL_ZONE_GROUPS = ((0, 4), (4, 8), (8, 9))
 ANATOMICAL_GROUP_NAMES = ("zones_1_4", "zones_5_8", "optic_nerve_zone_9")
 ZONE_COLUMNS = [f"Zone{i}_label" for i in range(1, NUM_TOTAL_ZONES + 1)]
@@ -37,14 +37,17 @@ DINO_ARCHES = {
     "dinov2_vitl14": "vit_large_patch14_dinov2.lvd142m",
     "dinov2_vitg14": "vit_giant_patch14_dinov2.lvd142m",
 }
+BACKBONE_CHOICES = ("dinov2", "retfound_dinov2", "dinov3_vitl16")
+DEFAULT_RETFOUND_DINOV2_CHECKPOINT = "RETFound_dinov2_meh"
+DEFAULT_DINOV3_MODEL_ID = "facebook/dinov3-vitl16-pretrain-lvd1689m"
 wandb_run = None
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Standalone FA zone classifier: full FA image -> DINOv2 patch tokens -> "
-            "soft zone-mask attention pooling -> shared binary MLP for Zones 1-9."
+            "Standalone FA zone classifier: full FA image -> transformer patch tokens -> "
+            "soft zone-mask attention pooling -> anatomical classification heads for Zones 1-9."
         )
     )
     parser.add_argument("--csvpath", type=str, default="fold_zone_masks_ready_patient_split/fold_0")
@@ -66,8 +69,39 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--image_column", type=str, default="Image_File(FA)")
     parser.add_argument("--mask_column", type=str, default="FA_Mask_Path")
     parser.add_argument("--drop_missing_zone_rows", choices=["none", "any", "all"], default="all")
+    parser.add_argument(
+        "--backbone",
+        choices=BACKBONE_CHOICES,
+        default="dinov2",
+        help="Transformer encoder. RETFound-DINOv2 and DINOv3 ViT-L/16 implement Experiment D specialist/generalist runs.",
+    )
     parser.add_argument("--dinov2_arch", choices=sorted(DINO_ARCHES), default="dinov2_vitb14")
-    parser.add_argument("--image_size", type=int, default=392, help="392 gives a 28x28 patch grid for DINOv2 patch-14.")
+    parser.add_argument(
+        "--retfound_dinov2_checkpoint",
+        type=str,
+        default=DEFAULT_RETFOUND_DINOV2_CHECKPOINT,
+        help=(
+            "Local RETFound-DINOv2 .pth checkpoint or Hugging Face repo ID. Bare names are resolved under "
+            "YukunZhou/; gated downloads use the HF_TOKEN environment variable or cached login."
+        ),
+    )
+    parser.add_argument(
+        "--dinov3_model_id",
+        type=str,
+        default=DEFAULT_DINOV3_MODEL_ID,
+        help="Hugging Face model ID or local Transformers directory for DINOv3 ViT-L/16.",
+    )
+    parser.add_argument(
+        "--hf_local_files_only",
+        action="store_true",
+        help="Do not access Hugging Face over the network; require models/checkpoints to be cached or local.",
+    )
+    parser.add_argument(
+        "--image_size",
+        type=int,
+        default=392,
+        help="Square letterbox size. Use 392 for DINOv2 patch-14 and 384 for DINOv3 patch-16.",
+    )
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--num_workers", type=int, default=4)
     parser.add_argument("--epochs", type=int, default=100)
@@ -92,6 +126,11 @@ def parse_args() -> argparse.Namespace:
         help="Bottleneck width relative to feature width for --head_variant group_adapters.",
     )
     parser.add_argument("--freeze_backbone", action="store_true")
+    parser.add_argument(
+        "--gradient_checkpointing",
+        action="store_true",
+        help="Trade extra compute for lower activation memory during full encoder fine-tuning.",
+    )
     parser.add_argument("--unweighted", action="store_true", help="Disable per-zone BCE positive weights.")
     parser.add_argument("--threshold", type=float, default=0.5, help="Fallback threshold used for training metrics.")
     parser.add_argument("--min_lr", type=float, default=1e-6, help="Minimum backbone LR; the head keeps the same LR ratio.")
@@ -104,7 +143,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--gpu", type=int, default=0)
     parser.add_argument("--amp", action="store_true")
-    parser.add_argument("--no_pretrained", action="store_true", help="Initialize DINOv2 architecture without pretrained weights.")
+    parser.add_argument("--no_pretrained", action="store_true", help="Initialize the selected architecture without pretrained weights.")
     tracking = parser.add_argument_group("Weights & Biases")
     tracking.add_argument("--wandb", action="store_true", help="Enable Weights & Biases logging.")
     tracking.add_argument("--wandb_project", type=str, default="uveitis-fa-zone-attention")
@@ -625,25 +664,254 @@ class FAZoneDataset(Dataset):
         }
 
 
+def resolve_hf_or_local_checkpoint(
+    checkpoint: str,
+    *,
+    local_files_only: bool,
+    default_owner: str = "YukunZhou",
+) -> str:
+    """Resolve a local checkpoint or the single .pth file in a Hugging Face repo."""
+    expanded = os.path.expanduser(checkpoint)
+    if os.path.isfile(expanded):
+        return os.path.abspath(expanded)
+
+    try:
+        from huggingface_hub import hf_hub_download
+    except ImportError as exc:
+        raise FileNotFoundError(
+            f"Checkpoint {checkpoint!r} was not found locally and huggingface_hub is not installed."
+        ) from exc
+
+    repo_id = checkpoint if "/" in checkpoint else f"{default_owner}/{checkpoint}"
+    repo_name = repo_id.rsplit("/", 1)[-1]
+    filename = repo_name if repo_name.endswith((".pth", ".pt", ".bin")) else f"{repo_name}.pth"
+    return hf_hub_download(repo_id=repo_id, filename=filename, local_files_only=local_files_only)
+
+
+def unwrap_state_dict(checkpoint_obj: Any) -> dict[str, torch.Tensor]:
+    if not isinstance(checkpoint_obj, dict):
+        raise TypeError(f"Expected a checkpoint dictionary, got {type(checkpoint_obj).__name__}.")
+    for key in ("teacher", "state_dict", "model", "student"):
+        nested = checkpoint_obj.get(key)
+        if isinstance(nested, dict) and nested:
+            return unwrap_state_dict(nested)
+    tensors = {key: value for key, value in checkpoint_obj.items() if torch.is_tensor(value)}
+    if not tensors:
+        raise ValueError("Checkpoint does not contain a tensor state dictionary.")
+    return tensors
+
+
+def clean_retfound_state_dict(state_dict: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+    cleaned = {}
+    for key, value in state_dict.items():
+        clean_key = key
+        removed = True
+        while removed:
+            removed = False
+            for prefix in ("module.", "model.", "teacher.", "student.", "backbone.", "encoder.", "network."):
+                if clean_key.startswith(prefix):
+                    clean_key = clean_key[len(prefix) :]
+                    removed = True
+                    break
+        clean_key = clean_key.replace("mlp.w12.", "mlp.fc1.").replace("mlp.w3.", "mlp.fc2.")
+        if not clean_key.startswith(("head.", "head_dist.")):
+            cleaned[clean_key] = value
+    return cleaned
+
+
+def interpolate_pos_embed(model: nn.Module, state_dict: dict[str, torch.Tensor]) -> None:
+    if "pos_embed" not in state_dict or not hasattr(model, "pos_embed"):
+        return
+    checkpoint_pos = state_dict["pos_embed"]
+    model_pos = model.pos_embed
+    if checkpoint_pos.shape == model_pos.shape:
+        return
+
+    embedding_size = checkpoint_pos.shape[-1]
+    new_patch_count = int(model.patch_embed.num_patches)
+    extra_tokens = int(model_pos.shape[-2] - new_patch_count)
+    old_patch_count = int(checkpoint_pos.shape[-2] - extra_tokens)
+    old_size = math.isqrt(old_patch_count)
+    new_size = math.isqrt(new_patch_count)
+    if old_size * old_size != old_patch_count or new_size * new_size != new_patch_count:
+        raise ValueError(
+            f"Cannot interpolate positional embedding from {old_patch_count} to {new_patch_count} non-square patches."
+        )
+    prefix_tokens = checkpoint_pos[:, :extra_tokens]
+    patch_tokens = checkpoint_pos[:, extra_tokens:]
+    patch_tokens = patch_tokens.reshape(-1, old_size, old_size, embedding_size).permute(0, 3, 1, 2)
+    patch_tokens = F.interpolate(patch_tokens, size=(new_size, new_size), mode="bicubic", align_corners=False)
+    patch_tokens = patch_tokens.permute(0, 2, 3, 1).flatten(1, 2)
+    state_dict["pos_embed"] = torch.cat((prefix_tokens, patch_tokens), dim=1)
+
+
 class DinoTokenBackbone(nn.Module):
-    def __init__(self, arch: str, image_size: int, pretrained: bool):
+    """Unified dense-token adapter for DINOv2, RETFound-DINOv2, and DINOv3."""
+
+    def __init__(
+        self,
+        backbone_name: str,
+        arch: str,
+        image_size: int,
+        pretrained: bool,
+        retfound_checkpoint: str,
+        dinov3_model_id: str,
+        hf_local_files_only: bool,
+        gradient_checkpointing: bool,
+    ):
         super().__init__()
+        self.backbone_name = backbone_name
+        self.init_metadata: dict[str, Any] = {"backbone": backbone_name}
+
+        if backbone_name == "dinov3_vitl16":
+            self._init_dinov3(
+                model_id=dinov3_model_id,
+                image_size=image_size,
+                pretrained=pretrained,
+                local_files_only=hf_local_files_only,
+            )
+        else:
+            self._init_dinov2(
+                arch=arch,
+                image_size=image_size,
+                pretrained=pretrained,
+                retfound_checkpoint=retfound_checkpoint,
+                local_files_only=hf_local_files_only,
+            )
+
+        if gradient_checkpointing:
+            self._enable_gradient_checkpointing()
+
+        if image_size % self.patch_size != 0:
+            raise ValueError(
+                f"--image_size must be divisible by the selected backbone patch size {self.patch_size}; "
+                f"got {image_size}."
+            )
+        if self.feature_dim <= 0:
+            raise ValueError(f"Could not infer feature dimension for {backbone_name}.")
+
+    def _enable_gradient_checkpointing(self) -> None:
+        if self.backbone_name == "dinov3_vitl16" and hasattr(self.backbone, "gradient_checkpointing_enable"):
+            self.backbone.gradient_checkpointing_enable()
+        elif hasattr(self.backbone, "set_grad_checkpointing"):
+            self.backbone.set_grad_checkpointing(enable=True)
+        else:
+            raise ValueError(f"Gradient checkpointing is not supported by {self.backbone_name}.")
+        self.init_metadata["gradient_checkpointing"] = True
+
+    def _init_dinov2(
+        self,
+        *,
+        arch: str,
+        image_size: int,
+        pretrained: bool,
+        retfound_checkpoint: str,
+        local_files_only: bool,
+    ) -> None:
         try:
             import timm
         except ImportError as exc:
-            raise ImportError("This script requires timm for DINOv2 backbones.") from exc
+            raise ImportError("DINOv2 backbones require timm>=1.0.20.") from exc
 
+        # The RETFound teacher checkpoint contains the specialist encoder. Avoid
+        # downloading a second, general DINOv2 checkpoint before replacing it.
+        use_timm_pretraining = pretrained and self.backbone_name == "dinov2"
         self.backbone = timm.create_model(
             DINO_ARCHES[arch],
-            pretrained=pretrained,
+            pretrained=use_timm_pretraining,
             img_size=image_size,
             num_classes=0,
         )
+        self.patch_size = DEFAULT_DINOV2_PATCH_SIZE
+        self.num_register_tokens = int(getattr(self.backbone, "num_reg_tokens", 0))
         self.feature_dim = int(getattr(self.backbone, "num_features", getattr(self.backbone, "embed_dim", 0)))
-        if self.feature_dim <= 0:
-            raise ValueError("Could not infer DINOv2 feature dimension.")
+        self.init_metadata.update({"architecture": arch, "timm_model": DINO_ARCHES[arch]})
+
+        if self.backbone_name != "retfound_dinov2" or not pretrained:
+            return
+        checkpoint_path = resolve_hf_or_local_checkpoint(
+            retfound_checkpoint,
+            local_files_only=local_files_only,
+        )
+        checkpoint_obj = torch.load(checkpoint_path, map_location="cpu", weights_only=True)
+        checkpoint_state = clean_retfound_state_dict(unwrap_state_dict(checkpoint_obj))
+        interpolate_pos_embed(self.backbone, checkpoint_state)
+        module_state = self.backbone.state_dict()
+        matched = {
+            key: value
+            for key, value in checkpoint_state.items()
+            if key in module_state and module_state[key].shape == value.shape
+        }
+        if not matched:
+            raise ValueError(f"No matching tensors found in RETFound-DINOv2 checkpoint: {checkpoint_path}")
+        total_elements = sum(value.numel() for value in module_state.values())
+        matched_elements = sum(value.numel() for value in matched.values())
+        checkpoint_coverage = matched_elements / max(total_elements, 1)
+        if checkpoint_coverage < 0.90:
+            raise ValueError(
+                f"RETFound-DINOv2 checkpoint covers only {checkpoint_coverage:.1%} of the requested {arch} encoder. "
+                "Check that --dinov2_arch matches the checkpoint architecture."
+            )
+        missing, unexpected = self.backbone.load_state_dict(matched, strict=False)
+        self.init_metadata.update(
+            {
+                "checkpoint": checkpoint_path,
+                "matched_checkpoint_tensors": len(matched),
+                "checkpoint_parameter_coverage": checkpoint_coverage,
+                "missing_checkpoint_keys": len(missing),
+                "unexpected_checkpoint_keys": len(unexpected),
+            }
+        )
+        print(
+            f"Loaded {len(matched)} RETFound-DINOv2 tensors ({checkpoint_coverage:.1%} parameter coverage) "
+            f"from {checkpoint_path}. "
+            f"Missing keys: {len(missing)}, unexpected keys: {len(unexpected)}."
+        )
+
+    def _init_dinov3(
+        self,
+        *,
+        model_id: str,
+        image_size: int,
+        pretrained: bool,
+        local_files_only: bool,
+    ) -> None:
+        try:
+            from transformers import AutoConfig, AutoModel
+        except ImportError as exc:
+            raise ImportError("DINOv3 requires transformers>=4.56.0.") from exc
+
+        if pretrained:
+            self.backbone = AutoModel.from_pretrained(model_id, local_files_only=local_files_only)
+        else:
+            config = AutoConfig.from_pretrained(model_id, local_files_only=local_files_only)
+            self.backbone = AutoModel.from_config(config)
+        config = self.backbone.config
+        self.patch_size = int(config.patch_size)
+        self.num_register_tokens = int(getattr(config, "num_register_tokens", 0))
+        self.feature_dim = int(config.hidden_size)
+        self.init_metadata.update(
+            {
+                "architecture": "dinov3_vitl16",
+                "model_id": model_id,
+                "num_register_tokens": self.num_register_tokens,
+                "requested_image_size": image_size,
+            }
+        )
 
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+        if self.backbone_name == "dinov3_vitl16":
+            features = self.backbone(pixel_values=x).last_hidden_state
+            expected_patches = (x.shape[-2] // self.patch_size) * (x.shape[-1] // self.patch_size)
+            patch_start = 1 + self.num_register_tokens
+            patch_tokens = features[:, patch_start : patch_start + expected_patches]
+            if patch_tokens.shape[1] != expected_patches:
+                raise ValueError(
+                    f"DINOv3 returned {patch_tokens.shape[1]} patch tokens; expected {expected_patches}. "
+                    "Check image dimensions and register-token configuration."
+                )
+            return features[:, 0], patch_tokens
+
         features = self.backbone.forward_features(x)
         if isinstance(features, dict):
             cls_token = features.get("x_norm_clstoken")
@@ -660,8 +928,11 @@ class DinoTokenBackbone(nn.Module):
             features = token_tensor
 
         if not torch.is_tensor(features) or features.ndim != 3 or features.shape[1] < 2:
-            raise ValueError(f"Expected DINOv2 token tensor [B,N,D], got {type(features)} {getattr(features, 'shape', None)}")
-        return features[:, 0], features[:, 1:]
+            raise ValueError(
+                f"Expected DINOv2 token tensor [B,N,D], got {type(features)} {getattr(features, 'shape', None)}"
+            )
+        patch_start = 1 + self.num_register_tokens
+        return features[:, 0], features[:, patch_start:]
 
 
 class SoftZoneAttentionPooling(nn.Module):
@@ -765,17 +1036,29 @@ class AnatomicalGroupClassifier(nn.Module):
 class FAZoneDinoClassifier(nn.Module):
     def __init__(
         self,
+        backbone_name: str,
         arch: str,
         image_size: int,
         pretrained: bool,
+        retfound_checkpoint: str,
+        dinov3_model_id: str,
+        hf_local_files_only: bool,
+        gradient_checkpointing: bool,
         dropout: float,
         head_variant: str = "shared",
         adapter_bottleneck_ratio: float = 0.25,
     ):
         super().__init__()
-        if image_size % PATCH_SIZE != 0:
-            raise ValueError(f"--image_size must be divisible by {PATCH_SIZE}; got {image_size}.")
-        self.backbone = DinoTokenBackbone(arch=arch, image_size=image_size, pretrained=pretrained)
+        self.backbone = DinoTokenBackbone(
+            backbone_name=backbone_name,
+            arch=arch,
+            image_size=image_size,
+            pretrained=pretrained,
+            retfound_checkpoint=retfound_checkpoint,
+            dinov3_model_id=dinov3_model_id,
+            hf_local_files_only=hf_local_files_only,
+            gradient_checkpointing=gradient_checkpointing,
+        )
         self.pool = SoftZoneAttentionPooling(feature_dim=self.backbone.feature_dim)
         hidden_dim = self.backbone.feature_dim
         self.head_variant = head_variant
@@ -795,7 +1078,7 @@ class FAZoneDinoClassifier(nn.Module):
                 variant=head_variant,
                 adapter_ratio=adapter_bottleneck_ratio,
             )
-        self.grid_size = (image_size // PATCH_SIZE, image_size // PATCH_SIZE)
+        self.grid_size = (image_size // self.backbone.patch_size, image_size // self.backbone.patch_size)
 
     def forward(self, full_image: torch.Tensor, zone_masks: torch.Tensor) -> torch.Tensor:
         cls_token, patch_tokens = self.backbone(full_image)
@@ -1131,8 +1414,8 @@ def main() -> None:
     init_wandb(args)
 
     device = torch.device(f"cuda:{args.gpu}" if torch.cuda.is_available() else "cpu")
-    if args.image_size % PATCH_SIZE != 0:
-        raise ValueError(f"--image_size must be divisible by {PATCH_SIZE}; got {args.image_size}.")
+    if args.image_size <= 0:
+        raise ValueError(f"--image_size must be positive; got {args.image_size}.")
 
     train_split = read_split(split_csv_path(args.csvpath, "train"), args)
     val_split = read_split(split_csv_path(args.csvpath, "val"), args)
@@ -1172,9 +1455,14 @@ def main() -> None:
     )
 
     model = FAZoneDinoClassifier(
+        backbone_name=args.backbone,
         arch=args.dinov2_arch,
         image_size=args.image_size,
         pretrained=not args.no_pretrained,
+        retfound_checkpoint=args.retfound_dinov2_checkpoint,
+        dinov3_model_id=args.dinov3_model_id,
+        hf_local_files_only=args.hf_local_files_only,
+        gradient_checkpointing=args.gradient_checkpointing,
         dropout=args.dropout,
         head_variant=args.head_variant,
         adapter_bottleneck_ratio=args.adapter_bottleneck_ratio,
@@ -1197,7 +1485,9 @@ def main() -> None:
         "target_zones": list(range(1, NUM_TARGET_ZONES + 1)),
         "zone10_removed_from_full_fa": True,
         "aspect_ratio_preserved_with_padding": True,
-        "patch_grid": [args.image_size // PATCH_SIZE, args.image_size // PATCH_SIZE],
+        "backbone_initialization": model.backbone.init_metadata,
+        "patch_size": model.backbone.patch_size,
+        "patch_grid": list(model.grid_size),
         "anatomical_zone_groups": {
             name: list(range(start + 1, end + 1))
             for name, (start, end) in zip(ANATOMICAL_GROUP_NAMES, ANATOMICAL_ZONE_GROUPS)

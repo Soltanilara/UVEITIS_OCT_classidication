@@ -5,6 +5,8 @@ __pycache__/
 # Local env / editor
 .venv/
 venv/
+.conda/
+.cache/
 .env
 .vscode/
 
@@ -28,4 +30,3 @@ output*/**/history.jpeg
 !**/*.json
 
 Dataset-UVEITIS/
-

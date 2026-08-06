@@ -1,0 +1,14 @@
+# Install PyTorch and torchvision for the target CUDA version first; see
+# docs/EXPERIMENT_D_FOUNDATION_BACKBONES.md. These are the remaining runtime
+# dependencies for the RETFound-DINOv2 and DINOv3 Experiment D pipelines.
+timm>=1.0.20,<2
+transformers>=4.56,<6
+huggingface-hub>=0.34
+safetensors>=0.5
+numpy>=1.26
+pandas>=2.2
+scikit-learn>=1.5
+Pillow>=10
+tqdm>=4.66
+opencv-python-headless>=4.10
+wandb>=0.18

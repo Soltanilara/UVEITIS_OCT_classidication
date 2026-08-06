@@ -27,6 +27,8 @@ Use a Python environment with the dependencies used by scripts, including:
 - `huggingface_hub` if using automatic RETFound checkpoint download
 - `wandb` if using optional Weights & Biases logging
 
+For the Experiment D RETFound-DINOv2 and DINOv3 ViT-Large fine-tuning pipelines, use the dedicated setup and launch guide in [docs/EXPERIMENT_D_FOUNDATION_BACKBONES.md](docs/EXPERIMENT_D_FOUNDATION_BACKBONES.md).
+
 ## Data Expectations
 - Split CSVs should contain at least:
   - `Image File`
