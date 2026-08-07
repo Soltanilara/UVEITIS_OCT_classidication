@@ -70,6 +70,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--mask_column", type=str, default="FA_Mask_Path")
     parser.add_argument("--drop_missing_zone_rows", choices=["none", "any", "all"], default="all")
     parser.add_argument(
+        "--eager_mask_scan",
+        action="store_true",
+        help=(
+            "Validate every full-resolution mask before model construction. Disabled by default because this can "
+            "take a long time on NAS storage; masks are always checked lazily when each sample is loaded."
+        ),
+    )
+    parser.add_argument(
         "--backbone",
         choices=BACKBONE_CHOICES,
         default="dinov2",
@@ -379,27 +387,29 @@ def read_split(csv_file: str, args: argparse.Namespace) -> SplitData:
         else:
             raise ValueError(f"{csv_file} needs either {args.mask_absolute_column!r} or {args.mask_column!r}.")
 
-    zone_nonempty_rows = []
     empty_mask_records = []
-    for image_path, mask_path in zip(image_paths, mask_paths, strict=True):
-        raw_mask = np.load(mask_path)
-        zone_stack = zone_stack_from_mask_array(raw_mask, mask_path)
-        if zone_stack.shape[0] < NUM_TOTAL_ZONES:
-            raise ValueError(f"Zone 10 mask is required to remove Zone 10: {mask_path}")
-        zone_nonempty = zone_stack[:NUM_TARGET_ZONES].reshape(NUM_TARGET_ZONES, -1).sum(axis=1) > 0
-        zone_nonempty_rows.append(zone_nonempty)
-        for zone_idx in np.flatnonzero(~zone_nonempty):
-            empty_mask_records.append(
-                {
-                    "image_path": image_path,
-                    "zone": int(zone_idx + 1),
-                    "mask_path": mask_path,
-                    "empty_mask_count": 1,
-                }
-            )
+    zone_nonempty_tensor = torch.ones((len(image_paths), NUM_TARGET_ZONES), dtype=torch.bool)
+    if args.eager_mask_scan:
+        zone_nonempty_rows = []
+        for image_path, mask_path in zip(image_paths, mask_paths, strict=True):
+            raw_mask = np.load(mask_path)
+            zone_stack = zone_stack_from_mask_array(raw_mask, mask_path)
+            if zone_stack.shape[0] < NUM_TOTAL_ZONES:
+                raise ValueError(f"Zone 10 mask is required to remove Zone 10: {mask_path}")
+            zone_nonempty = zone_stack[:NUM_TARGET_ZONES].reshape(NUM_TARGET_ZONES, -1).sum(axis=1) > 0
+            zone_nonempty_rows.append(zone_nonempty)
+            for zone_idx in np.flatnonzero(~zone_nonempty):
+                empty_mask_records.append(
+                    {
+                        "image_path": image_path,
+                        "zone": int(zone_idx + 1),
+                        "mask_path": mask_path,
+                        "empty_mask_count": 1,
+                    }
+                )
 
-    zone_nonempty_tensor = torch.tensor(np.stack(zone_nonempty_rows), dtype=torch.bool)
-    observed_mask &= zone_nonempty_tensor
+        zone_nonempty_tensor = torch.tensor(np.stack(zone_nonempty_rows), dtype=torch.bool)
+        observed_mask &= zone_nonempty_tensor
 
     image_id_col = args.image_column if args.image_column in df.columns else df.columns[0]
     metadata = {

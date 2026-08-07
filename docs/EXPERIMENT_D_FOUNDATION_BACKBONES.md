@@ -11,6 +11,8 @@ This pipeline keeps the established Experiment D design:
 
 The five-fold launcher enables gradient checkpointing for both ViT-L encoders to reduce activation memory while retaining full end-to-end fine-tuning.
 
+Full-resolution masks are validated lazily as samples enter a batch. This avoids an expensive pre-training scan of every mask over NAS storage. Add `--eager_mask_scan` only when a complete preflight mask audit is specifically required.
+
 The two new encoders are:
 
 | CLI value | Pretrained model | Input | Patch grid |
