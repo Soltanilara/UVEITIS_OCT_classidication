@@ -115,3 +115,57 @@ python training/train_fa_dinov2_zone_attention.py \
   --image_size 384 \
   --head_variant group_mlps
 ```
+
+## DINOv3 central/peripheral follow-up ablations
+
+These two five-fold runs test the hypotheses raised by the zone-wise Experiment D results. Both retain the
+same patient splits, group-MLP head, optimizer, augmentations, class weighting, validation-selected thresholds,
+and end-to-end DINOv3 fine-tuning used by the 384-pixel baseline.
+
+### 1. Match DINOv2's 28x28 spatial grid
+
+DINOv3 uses 16-pixel patches, so a 448-pixel input produces 28x28 spatial tokens. This tests whether the
+24x24 baseline grid was responsible for weaker performance in the small central Zones 1-4.
+
+```bash
+conda activate retfound
+
+python run_fa_anatomical_head_experiments.py \
+  --experiments D \
+  --backbones dinov3_vitl16 \
+  --image-size 448 \
+  --batch-size 8 \
+  --python "$(command -v python)" \
+  --dinov3-model-id /home/shashank/models/dinov3-vitl16 \
+  --hf-local-files-only \
+  --output-root fa_anatomical_head_experiments/followups/dinov3_448_grid28 \
+  --resume
+```
+
+If 448 pixels does not fit at batch size 8, reduce `--batch-size` to 4. Record that deviation when comparing
+against the baseline because the training script does not currently use gradient accumulation.
+
+### 2. Remove the global CLS feature
+
+This run keeps the original 384-pixel, 24x24-grid DINOv3 configuration but classifies from mask-pooled local
+zone tokens only. It tests whether DINOv3's peripheral and Zone 9 gains depend on global image context.
+
+```bash
+conda activate retfound
+
+python run_fa_anatomical_head_experiments.py \
+  --experiments D \
+  --backbones dinov3_vitl16 \
+  --image-size 384 \
+  --exclude-global-cls \
+  --batch-size 8 \
+  --python "$(command -v python)" \
+  --dinov3-model-id /home/shashank/models/dinov3-vitl16 \
+  --hf-local-files-only \
+  --output-root fa_anatomical_head_experiments/followups/dinov3_384_local_only \
+  --resume
+```
+
+Run either command once with `--dry-run` added to inspect all five generated fold commands without creating
+outputs. Each output's `train_metadata.json` records the patch grid and whether feature fusion was
+`zone_local_plus_global_cls` or `zone_local_only`.

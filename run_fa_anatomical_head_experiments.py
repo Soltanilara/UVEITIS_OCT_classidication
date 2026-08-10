@@ -148,6 +148,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dinov3-model-id", default="facebook/dinov3-vitl16-pretrain-lvd1689m")
     parser.add_argument("--hf-local-files-only", action="store_true")
     parser.add_argument(
+        "--image-size",
+        type=int,
+        default=None,
+        help="Override the backbone's default square input size; DINOv3 at 448 produces a 28x28 patch grid.",
+    )
+    parser.add_argument(
+        "--exclude-global-cls",
+        action="store_true",
+        help="Use only mask-pooled zone tokens, without concatenating the global CLS token.",
+    )
+    parser.add_argument(
         "--batch-size",
         type=int,
         default=2,
@@ -236,7 +247,7 @@ def build_tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
                     "--output_path", str(output_dir),
                     "--head_variant", experiment["head_variant"],
                     "--backbone", backbone_name,
-                    "--image_size", str(backbone_config["image_size"]),
+                    "--image_size", str(args.image_size or backbone_config["image_size"]),
                     "--batch_size", str(args.batch_size),
                     "--num_workers", str(args.num_workers),
                     *backbone_config["extra_args"],
@@ -248,6 +259,8 @@ def build_tasks(args: argparse.Namespace) -> list[dict[str, Any]]:
                     command.extend(["--dinov3_model_id", args.dinov3_model_id])
                 if args.hf_local_files_only:
                     command.append("--hf_local_files_only")
+                if args.exclude_global_cls:
+                    command.append("--exclude_global_cls")
                 if backbone_config["gradient_checkpointing"]:
                     command.append("--gradient_checkpointing")
                 if not args.fast:
@@ -393,6 +406,8 @@ def main() -> int:
     args = parse_args()
     if args.batch_size < 1 or args.num_workers < 0:
         raise ValueError("Require --batch-size >= 1 and --num-workers >= 0.")
+    if args.image_size is not None and args.image_size < 1:
+        raise ValueError("Require --image-size >= 1 when provided.")
     if len(GPU_IDS) != len(set(GPU_IDS)) or not GPU_IDS:
         raise ValueError("GPU_IDS must contain unique physical GPU indices.")
     if MAX_CONCURRENT_JOBS != 2:

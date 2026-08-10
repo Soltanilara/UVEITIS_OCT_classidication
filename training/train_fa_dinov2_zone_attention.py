@@ -133,6 +133,14 @@ def parse_args() -> argparse.Namespace:
         default=0.25,
         help="Bottleneck width relative to feature width for --head_variant group_adapters.",
     )
+    parser.add_argument(
+        "--exclude_global_cls",
+        action="store_true",
+        help=(
+            "Classify each zone from its mask-pooled patch representation only. By default, the global CLS "
+            "token is concatenated with every zone representation. This flag provides the local-only ablation."
+        ),
+    )
     parser.add_argument("--freeze_backbone", action="store_true")
     parser.add_argument(
         "--gradient_checkpointing",
@@ -1057,6 +1065,7 @@ class FAZoneDinoClassifier(nn.Module):
         dropout: float,
         head_variant: str = "shared",
         adapter_bottleneck_ratio: float = 0.25,
+        include_global_cls: bool = True,
     ):
         super().__init__()
         self.backbone = DinoTokenBackbone(
@@ -1072,17 +1081,19 @@ class FAZoneDinoClassifier(nn.Module):
         self.pool = SoftZoneAttentionPooling(feature_dim=self.backbone.feature_dim)
         hidden_dim = self.backbone.feature_dim
         self.head_variant = head_variant
+        self.include_global_cls = include_global_cls
+        classifier_input_dim = self.backbone.feature_dim * (2 if include_global_cls else 1)
         if head_variant == "shared":
             # Preserve Experiment A's architecture and state-dict key names.
             self.head = nn.Sequential(
-                nn.Linear(2 * self.backbone.feature_dim, hidden_dim),
+                nn.Linear(classifier_input_dim, hidden_dim),
                 nn.GELU(),
                 nn.Dropout(dropout),
                 nn.Linear(hidden_dim, 1),
             )
         else:
             self.head = AnatomicalGroupClassifier(
-                input_dim=2 * self.backbone.feature_dim,
+                input_dim=classifier_input_dim,
                 hidden_dim=hidden_dim,
                 dropout=dropout,
                 variant=head_variant,
@@ -1093,8 +1104,11 @@ class FAZoneDinoClassifier(nn.Module):
     def forward(self, full_image: torch.Tensor, zone_masks: torch.Tensor) -> torch.Tensor:
         cls_token, patch_tokens = self.backbone(full_image)
         zone_embeddings = self.pool(patch_tokens=patch_tokens, zone_masks=zone_masks, grid_size=self.grid_size)
-        cls_per_zone = cls_token.unsqueeze(1).expand(-1, NUM_TARGET_ZONES, -1)
-        fused = torch.cat([zone_embeddings, cls_per_zone], dim=-1)
+        if self.include_global_cls:
+            cls_per_zone = cls_token.unsqueeze(1).expand(-1, NUM_TARGET_ZONES, -1)
+            fused = torch.cat([zone_embeddings, cls_per_zone], dim=-1)
+        else:
+            fused = zone_embeddings
         logits = self.head(fused)
         return logits.squeeze(-1) if self.head_variant == "shared" else logits
 
@@ -1476,6 +1490,7 @@ def main() -> None:
         dropout=args.dropout,
         head_variant=args.head_variant,
         adapter_bottleneck_ratio=args.adapter_bottleneck_ratio,
+        include_global_cls=not args.exclude_global_cls,
     ).to(device)
     if args.freeze_backbone:
         for param in model.backbone.parameters():
@@ -1498,6 +1513,7 @@ def main() -> None:
         "backbone_initialization": model.backbone.init_metadata,
         "patch_size": model.backbone.patch_size,
         "patch_grid": list(model.grid_size),
+        "feature_fusion": "zone_local_plus_global_cls" if model.include_global_cls else "zone_local_only",
         "anatomical_zone_groups": {
             name: list(range(start + 1, end + 1))
             for name, (start, end) in zip(ANATOMICAL_GROUP_NAMES, ANATOMICAL_ZONE_GROUPS)
