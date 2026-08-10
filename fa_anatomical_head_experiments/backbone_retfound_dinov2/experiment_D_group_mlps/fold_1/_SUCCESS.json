@@ -1,0 +1,12 @@
+{
+  "index": 6,
+  "experiment": "D",
+  "name": "retfound_dinov2_group_mlps",
+  "fold": 1,
+  "status": "success",
+  "gpu": 0,
+  "start_time": "2026-08-08T00:42:24+00:00",
+  "end_time": "2026-08-08T01:28:14+00:00",
+  "exit_code": 0,
+  "output_path": "/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/backbone_retfound_dinov2/experiment_D_group_mlps/fold_1"
+}
