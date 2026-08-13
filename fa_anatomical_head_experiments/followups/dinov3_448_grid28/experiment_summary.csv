@@ -1,0 +1,6 @@
+experiment,name,fold,status,gpu,start_time,end_time,exit_code,output_path
+D,dinov3_vitl16_group_mlps,0,success,0,2026-08-10T19:15:13+00:00,2026-08-10T21:00:34+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/followups/dinov3_448_grid28/backbone_dinov3_vitl16/experiment_D_group_mlps/fold_0
+D,dinov3_vitl16_group_mlps,1,success,1,2026-08-10T19:15:13+00:00,2026-08-10T20:01:11+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/followups/dinov3_448_grid28/backbone_dinov3_vitl16/experiment_D_group_mlps/fold_1
+D,dinov3_vitl16_group_mlps,2,success,1,2026-08-10T20:01:11+00:00,2026-08-10T20:42:50+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/followups/dinov3_448_grid28/backbone_dinov3_vitl16/experiment_D_group_mlps/fold_2
+D,dinov3_vitl16_group_mlps,3,success,1,2026-08-10T20:42:50+00:00,2026-08-10T22:00:52+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/followups/dinov3_448_grid28/backbone_dinov3_vitl16/experiment_D_group_mlps/fold_3
+D,dinov3_vitl16_group_mlps,4,success,0,2026-08-10T21:00:34+00:00,2026-08-10T21:45:02+00:00,0,/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/followups/dinov3_448_grid28/backbone_dinov3_vitl16/experiment_D_group_mlps/fold_4
