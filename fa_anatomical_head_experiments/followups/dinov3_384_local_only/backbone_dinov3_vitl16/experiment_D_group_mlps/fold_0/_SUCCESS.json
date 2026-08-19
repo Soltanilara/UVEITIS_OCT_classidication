@@ -1,0 +1,12 @@
+{
+  "index": 0,
+  "experiment": "D",
+  "name": "dinov3_vitl16_group_mlps",
+  "fold": 0,
+  "status": "success",
+  "gpu": 1,
+  "start_time": "2026-08-13T01:21:07+00:00",
+  "end_time": "2026-08-13T17:12:22+00:00",
+  "exit_code": 0,
+  "output_path": "/home/shashank/UVEITIS_OCT_classidication/fa_anatomical_head_experiments/followups/dinov3_384_local_only/backbone_dinov3_vitl16/experiment_D_group_mlps/fold_0"
+}
